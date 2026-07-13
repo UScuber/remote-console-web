@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { createServer } from 'node:http';
+import path from 'node:path';
 import express from 'express';
 import bcrypt from 'bcrypt';
 import { WebSocketServer } from 'ws';
@@ -24,15 +25,15 @@ app.use((req, _res, next) => {
 });
 app.use(sessionMiddleware);
 
-app.get('/', (req, res) => {
+// クライアント(SPA)は/api/sessionで認証状態とCSRFトークンを取得してから描画を分岐する。
+app.get('/api/session', (req, res) => {
   const csrfToken = generateCsrfToken(req);
-  const heading = req.session.authenticated ? 'メイン画面(プレースホルダー)' : 'ログインページ(プレースホルダー)';
-  res
-    .type('html')
-    .send(
-      `<!doctype html><title>remote-console-web</title><meta name="csrf-token" content="${csrfToken}"><h1>${heading}</h1>`,
-    );
+  res.json({ authenticated: Boolean(req.session.authenticated), csrfToken });
 });
+
+// ビルド済みクライアント(client/dist)を配信する。'/'はexpress.staticがindex.htmlを自動応答する。
+const CLIENT_DIST_DIR = path.resolve(__dirname, '../../client/dist');
+app.use(express.static(CLIENT_DIST_DIR));
 
 app.post('/api/login', loginRateLimiter, csrfProtection, async (req, res) => {
   const password = typeof req.body?.password === 'string' ? req.body.password : '';

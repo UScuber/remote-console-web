@@ -10,13 +10,17 @@ function App() {
   const [csrfToken, setCsrfToken] = useState('');
 
   useEffect(() => {
-    fetch('/api/session', { credentials: 'same-origin' })
-      .then((res) => res.json())
-      .then((data: { authenticated: boolean; csrfToken: string }) => {
+    async function loadSession() {
+      try {
+        const res = await fetch('/api/session', { credentials: 'same-origin' });
+        const data: { authenticated: boolean; csrfToken: string } = await res.json();
         setCsrfToken(data.csrfToken);
         setAuthState(data.authenticated ? 'authenticated' : 'anonymous');
-      })
-      .catch(() => setAuthState('anonymous'));
+      } catch {
+        setAuthState('anonymous');
+      }
+    }
+    loadSession();
   }, []);
 
   if (authState === 'loading') {

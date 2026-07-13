@@ -16,10 +16,21 @@ function applyCtrl(data: string): string {
   return data;
 }
 
+const SPECIAL_KEYS: { label: string; seq: string }[] = [
+  { label: 'Esc', seq: '\x1b' },
+  { label: 'Tab', seq: '\t' },
+  // 矢印キーはnormal cursor mode固定。アプリがDECCKM(application cursor keys)を
+  // 有効化している場合は追随しない(既知の制限、Step 4時点では許容)。
+  { label: '↑', seq: '\x1b[A' },
+  { label: '↓', seq: '\x1b[B' },
+  { label: '←', seq: '\x1b[D' },
+  { label: '→', seq: '\x1b[C' },
+  { label: 'Ctrl+C', seq: '\x03' },
+];
+
 function TerminalPanel() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const ctrlArmedRef = useRef(false);
 
@@ -66,10 +77,13 @@ function TerminalPanel() {
     fitAddon.fit();
 
     termRef.current = term;
-    fitAddonRef.current = fitAddon;
 
     // xterm.jsはpty側(tmux)がマウストラッキングを要求した時点で自動的にマウス/タッチ座標の
     // レポートを開始する。JS側で別途「有効化」する設定は不要(tmux.confのset -g mouse onと対)。
+    //
+    // 公式のws直結アドオン(@xterm/addon-attach)は使わず、onData/onResizeを自前で配線している。
+    // このアプリはinput/resizeを1本のWebSocketにJSONフレームで多重化しており、
+    // addon-attachは生バイト列の送受信のみでresizeを運べないため。
     term.onData((data) => {
       if (ctrlArmedRef.current) {
         ctrlArmedRef.current = false;
@@ -92,6 +106,9 @@ function TerminalPanel() {
     ws.addEventListener('open', () => {
       setStatus('connected');
       fitAddon.fit();
+      // fit()はcols/rowsが直前から変化していない場合onResizeを発火しないため、
+      // 接続直後のサイズを明示的に送る(送らないとpty側がspawn時のデフォルト80x24のまま固定される)。
+      sendMessage({ type: 'resize', cols: term.cols, rows: term.rows });
       term.focus();
     });
 
@@ -123,8 +140,9 @@ function TerminalPanel() {
       wsRef.current = null;
       term.dispose();
       termRef.current = null;
-      fitAddonRef.current = null;
     };
+    // 現状はconnectSeqの変化でTerminalごと作り直している(再接続のたびにスクロールバックが消える)。
+    // Step 7で自動再接続ロジックを入れる際、Terminal生成とWebSocket接続のeffectを分離する。
   }, [connectSeq]);
 
   const statusLabel: Record<Status, string> = {
@@ -147,12 +165,6 @@ function TerminalPanel() {
       </div>
       <div className="terminal-container" ref={containerRef} />
       <div className="key-bar">
-        <button type="button" className="key-btn" onPointerDown={(e) => { e.preventDefault(); pressKey('\x1b'); }}>
-          Esc
-        </button>
-        <button type="button" className="key-btn" onPointerDown={(e) => { e.preventDefault(); pressKey('\t'); }}>
-          Tab
-        </button>
         <button
           type="button"
           className={`key-btn${ctrlArmed ? ' key-btn-armed' : ''}`}
@@ -160,21 +172,16 @@ function TerminalPanel() {
         >
           Ctrl
         </button>
-        <button type="button" className="key-btn" onPointerDown={(e) => { e.preventDefault(); pressKey('\x1b[A'); }}>
-          ↑
-        </button>
-        <button type="button" className="key-btn" onPointerDown={(e) => { e.preventDefault(); pressKey('\x1b[B'); }}>
-          ↓
-        </button>
-        <button type="button" className="key-btn" onPointerDown={(e) => { e.preventDefault(); pressKey('\x1b[D'); }}>
-          ←
-        </button>
-        <button type="button" className="key-btn" onPointerDown={(e) => { e.preventDefault(); pressKey('\x1b[C'); }}>
-          →
-        </button>
-        <button type="button" className="key-btn" onPointerDown={(e) => { e.preventDefault(); pressKey('\x03'); }}>
-          Ctrl+C
-        </button>
+        {SPECIAL_KEYS.map(({ label, seq }) => (
+          <button
+            key={label}
+            type="button"
+            className="key-btn"
+            onPointerDown={(e) => { e.preventDefault(); pressKey(seq); }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
     </div>
   );

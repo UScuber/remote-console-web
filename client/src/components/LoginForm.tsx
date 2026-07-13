@@ -6,6 +6,13 @@ interface Props {
   onLoginSuccess: (csrfToken: string) => void;
 }
 
+interface LoginResponse {
+  ok?: boolean;
+  csrfToken?: string;
+  error?: string;
+  retryAfterMs?: number;
+}
+
 function LoginForm({ csrfToken, onLoginSuccess }: Props) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +29,7 @@ function LoginForm({ csrfToken, onLoginSuccess }: Props) {
         credentials: 'same-origin',
         body: JSON.stringify({ password }),
       });
-      const data = await res.json();
+      const data: LoginResponse = await res.json();
       if (!res.ok) {
         if (res.status === 429) {
           const seconds = Math.ceil((data.retryAfterMs ?? 0) / 1000);
@@ -32,7 +39,9 @@ function LoginForm({ csrfToken, onLoginSuccess }: Props) {
         }
         return;
       }
-      onLoginSuccess(data.csrfToken);
+      if (data.csrfToken) {
+        onLoginSuccess(data.csrfToken);
+      }
     } catch {
       setError('通信エラーが発生しました');
     } finally {

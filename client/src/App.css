@@ -108,6 +108,9 @@
   flex: 1 1 auto;
   min-height: 0;
   padding: 4px;
+  /* 指スクロールは terminalTouchScroll.ts が自前で処理するため、ブラウザ既定の
+     パン・ズームを無効化する(スワイプをtouchmoveでpreventDefaultできるようにする)。 */
+  touch-action: none;
 }
 
 .key-bar {

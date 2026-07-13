@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
+import { enableTerminalTouchScroll } from './terminalTouchScroll';
 
 type Status = 'connecting' | 'connected' | 'disconnected' | 'superseded';
 
@@ -79,6 +80,9 @@ function TerminalPanel() {
     fitAddon.fit();
 
     termRef.current = term;
+
+    // スマホでの指スクロール(tmuxコピーモード)を有効化する。PCのマウスホイールと同じ経路。
+    const disposeTouchScroll = enableTerminalTouchScroll(term, container);
 
     // fitAddon.fit()はterm.resize()を経由してターミナルを再描画するため、日本語入力の変換中に
     // 呼ぶとIME確定前の文字が消えたり変換候補がずれたりする(iOS Safari)。ソフトウェアキーボード
@@ -161,6 +165,7 @@ function TerminalPanel() {
     window.addEventListener('resize', handleWindowResize);
 
     return () => {
+      disposeTouchScroll();
       resizeObserver.disconnect();
       window.removeEventListener('resize', handleWindowResize);
       textarea?.removeEventListener('compositionstart', handleCompositionStart);

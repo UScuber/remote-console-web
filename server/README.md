@@ -22,5 +22,6 @@ npm run build
 - `GET /`: 未認証ならログインページ、認証済みならメイン画面(プレースホルダー)。CSRFトークンを`<meta name="csrf-token">`で埋め込む
 - `POST /api/login`: `{ "password": "..." }` をbcrypt比較。成功でセッションCookie発行。5回連続失敗で60秒ロック
 - `POST /api/logout`: セッション失効
+- `WS /ws/terminal`: tmux経由のターミナル入出力。接続時にセッションCookieを検証。有効な接続は1つのみで、新規接続は既存接続を`close(4000, "superseded")`で置き換える
 
 セッション管理は`express-session`(+`memorystore`)、CSRF対策は`csrf-sync`(Synchronizer Token Pattern、トークンはセッションに保持)を利用。`POST /api/login`・`POST /api/logout`は要求ヘッダー`X-CSRF-Token`がセッション内のトークンと一致する必要がある。

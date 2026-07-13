@@ -1,8 +1,11 @@
 import 'dotenv/config';
+import { createServer } from 'node:http';
 import express from 'express';
 import bcrypt from 'bcrypt';
-import { requireAuth, csrfProtection, generateCsrfToken, loginRateLimiter } from './auth/middleware';
+import { WebSocketServer } from 'ws';
+import { requireAuth, csrfProtection, generateCsrfToken, loginRateLimiter, isRequestAuthenticated } from './auth/middleware';
 import { sessionMiddleware, recordLoginFailure, recordLoginSuccess, SESSION_COOKIE_NAME } from './auth/session';
+import { registerTerminalWebSocket } from './terminal/ptyManager';
 
 const PORT = Number(process.env.PORT) || 8443;
 const LOGIN_PASSWORD_HASH = process.env.LOGIN_PASSWORD_HASH;
@@ -63,6 +66,36 @@ app.post('/api/logout', csrfProtection, requireAuth, (req, res) => {
   });
 });
 
-app.listen(PORT, '127.0.0.1', () => {
+const server = createServer(app);
+
+const terminalWss = new WebSocketServer({ noServer: true });
+registerTerminalWebSocket(terminalWss);
+
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = new URL(req.url ?? '', 'http://localhost');
+
+  if (pathname !== '/ws/terminal') {
+    socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  isRequestAuthenticated(req)
+    .then((authenticated) => {
+      if (!authenticated) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      terminalWss.handleUpgrade(req, socket, head, (ws) => {
+        terminalWss.emit('connection', ws, req);
+      });
+    })
+    .catch(() => {
+      socket.destroy();
+    });
+});
+
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`server listening on http://127.0.0.1:${PORT}`);
 });

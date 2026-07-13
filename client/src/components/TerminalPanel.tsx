@@ -33,6 +33,8 @@ function TerminalPanel() {
   const termRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const ctrlArmedRef = useRef(false);
+  const isComposingRef = useRef(false);
+  const fitPendingRef = useRef(false);
 
   const [status, setStatus] = useState<Status>('connecting');
   const [ctrlArmed, setCtrlArmed] = useState(false);
@@ -77,6 +79,31 @@ function TerminalPanel() {
     fitAddon.fit();
 
     termRef.current = term;
+
+    // fitAddon.fit()はterm.resize()を経由してターミナルを再描画するため、日本語入力の変換中に
+    // 呼ぶとIME確定前の文字が消えたり変換候補がずれたりする(iOS Safari)。ソフトウェアキーボード
+    // の出現自体がリサイズを引き起こすため、変換中はリサイズを保留しcompositionend後に適用する。
+    function scheduleFit() {
+      if (isComposingRef.current) {
+        fitPendingRef.current = true;
+        return;
+      }
+      fitAddon.fit();
+    }
+
+    const textarea = term.textarea;
+    const handleCompositionStart = () => {
+      isComposingRef.current = true;
+    };
+    const handleCompositionEnd = () => {
+      isComposingRef.current = false;
+      if (fitPendingRef.current) {
+        fitPendingRef.current = false;
+        fitAddon.fit();
+      }
+    };
+    textarea?.addEventListener('compositionstart', handleCompositionStart);
+    textarea?.addEventListener('compositionend', handleCompositionEnd);
 
     // xterm.jsはpty側(tmux)がマウストラッキングを要求した時点で自動的にマウス/タッチ座標の
     // レポートを開始する。JS側で別途「有効化」する設定は不要(tmux.confのset -g mouse onと対)。
@@ -128,14 +155,16 @@ function TerminalPanel() {
     // 'close'が後続するため、ここでは状態更新しない(二重更新防止)。
     ws.addEventListener('error', () => {});
 
-    const resizeObserver = new ResizeObserver(() => fitAddon.fit());
+    const resizeObserver = new ResizeObserver(() => scheduleFit());
     resizeObserver.observe(container);
-    const handleWindowResize = () => fitAddon.fit();
+    const handleWindowResize = () => scheduleFit();
     window.addEventListener('resize', handleWindowResize);
 
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener('resize', handleWindowResize);
+      textarea?.removeEventListener('compositionstart', handleCompositionStart);
+      textarea?.removeEventListener('compositionend', handleCompositionEnd);
       ws.close();
       wsRef.current = null;
       term.dispose();

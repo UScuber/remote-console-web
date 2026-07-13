@@ -19,14 +19,23 @@
 }
 
 html,
-body,
-#root {
+body {
   height: 100%;
   margin: 0;
 }
 
 body {
   overscroll-behavior: none;
+}
+
+#root {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  /* ソフトウェアキーボード表示時はmain.tsxが--app-heightを実際に見えている高さへ更新する */
+  height: var(--app-height, 100%);
+  margin: 0;
 }
 
 button {

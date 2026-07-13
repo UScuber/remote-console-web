@@ -35,7 +35,8 @@ export const sessionMiddleware = session({
   proxy: true,
   cookie: {
     httpOnly: true,
-    secure: true,
+    // HTTPS接続の時だけSecure属性を付ける(固定trueだとローカルのhttp検証でCookieが保存されない)
+    secure: 'auto',
     sameSite: 'strict',
     maxAge: SESSION_TTL_MS,
   },

@@ -1,6 +1,6 @@
-import 'dotenv/config';
-import { createServer } from 'node:http';
+import './loadEnv';
 import path from 'node:path';
+import { createServer } from 'node:http';
 import express from 'express';
 import bcrypt from 'bcrypt';
 import { WebSocketServer } from 'ws';
@@ -18,11 +18,13 @@ if (!LOGIN_PASSWORD_HASH) {
 const app = express();
 app.use(express.json());
 
-// Tailscale ServeはX-Forwarded-Protoを付与しないため、Secure Cookie送信可否の判定用に自前で補う。
-app.use((req, _res, next) => {
-  req.headers['x-forwarded-proto'] = 'https';
-  next();
-});
+// Tailscale ServeはX-Forwarded-Protoを付与しないため、本番でのみSecure Cookie判定用に自前で補う
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, _res, next) => {
+    req.headers['x-forwarded-proto'] = 'https';
+    next();
+  });
+}
 app.use(sessionMiddleware);
 
 // クライアント(SPA)は/api/sessionで認証状態とCSRFトークンを取得してから描画を分岐する。
@@ -65,6 +67,17 @@ app.post('/api/logout', csrfProtection, requireAuth, (req, res) => {
     res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
     res.json({ ok: true });
   });
+});
+
+// エラー発生時もJSONで返す(デフォルトのHTMLエラーページだとクライアントでres.json()が失敗する)
+app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+  const status = typeof (err as { status?: unknown })?.status === 'number' ? (err as { status: number }).status : 500;
+  const code = typeof (err as { code?: unknown })?.code === 'string' ? (err as { code: string }).code : 'internal_error';
+  res.status(status).json({ error: code });
 });
 
 const server = createServer(app);

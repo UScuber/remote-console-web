@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import { requireAuth, csrfProtection, generateCsrfToken, loginRateLimiter, isRequestAuthenticated } from './auth/middleware';
 import { sessionMiddleware, recordLoginFailure, recordLoginSuccess, SESSION_COOKIE_NAME } from './auth/session';
 import { registerTerminalWebSocket } from './terminal/ptyManager';
+import { terminalHistoryHandler } from './terminal/historyHandler';
 
 const PORT = Number(process.env.PORT) || 8443;
 const LOGIN_PASSWORD_HASH = process.env.LOGIN_PASSWORD_HASH;
@@ -32,6 +33,9 @@ app.get('/api/session', (req, res) => {
   const csrfToken = generateCsrfToken(req);
   res.json({ authenticated: Boolean(req.session.authenticated), csrfToken });
 });
+
+// 「テキスト表示」用: tmuxスクロールバックを色付きで返す。参照のみのGETなので認証のみ(CSRF不要)。
+app.get('/api/terminal/history', requireAuth, terminalHistoryHandler);
 
 // ビルド済みクライアント(client/dist)を配信する。'/'はexpress.staticがindex.htmlを自動応答する。
 const CLIENT_DIST_DIR = path.resolve(__dirname, '../../client/dist');

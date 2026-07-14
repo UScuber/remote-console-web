@@ -4,6 +4,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { enableTerminalTouchScroll } from './terminalTouchScroll';
+import CommandInputBar from './CommandInputBar';
+import TerminalReviewSheet from './TerminalReviewSheet';
 
 type Status = 'connecting' | 'connected' | 'disconnected' | 'superseded';
 
@@ -40,6 +42,8 @@ function TerminalPanel() {
   const [status, setStatus] = useState<Status>('connecting');
   const [ctrlArmed, setCtrlArmed] = useState(false);
   const [connectSeq, setConnectSeq] = useState(0);
+  const [showInputBar, setShowInputBar] = useState(false);
+  const [showReview, setShowReview] = useState(false);
 
   function sendMessage(msg: Record<string, unknown>) {
     const ws = wsRef.current;
@@ -52,15 +56,46 @@ function TerminalPanel() {
     sendMessage({ type: 'input', data });
   }
 
+  // copy-modeで履歴を見ている最中でも、ターミナルをクリックすればtmuxのbind(MouseDown1Pane→cancel)が
+  // 最新表示へ戻す。クリックのマウス報告はPCのクリックと同じ経路でWebSocketへ流れる。
+  function returnToLatest() {
+    const term = termRef.current;
+    if (!term || term.modes.mouseTrackingMode === 'none') return;
+    const el = term.element;
+    const screen = el?.querySelector<HTMLElement>('.xterm-screen');
+    if (!el || !screen) return;
+    const rect = screen.getBoundingClientRect();
+    const opts: MouseEventInit = {
+      clientX: rect.left + 2,
+      clientY: rect.bottom - 2,
+      button: 0,
+      bubbles: true,
+      cancelable: true,
+    };
+    el.dispatchEvent(new MouseEvent('mousedown', opts));
+    el.dispatchEvent(new MouseEvent('mouseup', opts));
+  }
+
+  // 改行区切りのテキストを、そのまま実行できる1コマンドに整える(改行=CR、末尾に確定のCR)。
+  function toShellCommand(text: string): string {
+    const body = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '').replace(/\n/g, '\r');
+    return `${body}\r`;
+  }
+
+  function submitCommand(text: string) {
+    returnToLatest();
+    sendInput(toShellCommand(text));
+  }
+
+  // フォーカスは触らない。ボタンのonPointerDownでpreventDefault済みなのでテキストエリアは
+  // フォーカスを保ち、iOSのキーボードは出たまま(term.focus()を呼ぶと再フォーカスでちらつく)。
   function pressCtrl() {
     ctrlArmedRef.current = !ctrlArmedRef.current;
     setCtrlArmed(ctrlArmedRef.current);
-    termRef.current?.focus();
   }
 
   function pressKey(data: string) {
     sendInput(data);
-    termRef.current?.focus();
   }
 
   useEffect(() => {
@@ -191,13 +226,30 @@ function TerminalPanel() {
       <div className="terminal-statusbar">
         <span className={`status-dot status-${status}`} />
         <span>{statusLabel[status]}</span>
-        {(status === 'disconnected' || status === 'superseded') && (
-          <button type="button" className="reconnect-btn" onClick={() => setConnectSeq((n) => n + 1)}>
-            再接続
+        <div className="statusbar-actions">
+          <button
+            type="button"
+            className={`statusbar-btn${showReview ? ' statusbar-btn-active' : ''}`}
+            onClick={() => setShowReview((v) => !v)}
+          >
+            テキスト表示
           </button>
-        )}
+          <button
+            type="button"
+            className={`statusbar-btn${showInputBar ? ' statusbar-btn-active' : ''}`}
+            onClick={() => setShowInputBar((v) => !v)}
+          >
+            入力欄
+          </button>
+          {(status === 'disconnected' || status === 'superseded') && (
+            <button type="button" className="statusbar-btn" onClick={() => setConnectSeq((n) => n + 1)}>
+              再接続
+            </button>
+          )}
+        </div>
       </div>
       <div className="terminal-container" ref={containerRef} />
+      {showInputBar && <CommandInputBar onSubmit={submitCommand} />}
       <div className="key-bar">
         <button
           type="button"
@@ -217,6 +269,7 @@ function TerminalPanel() {
           </button>
         ))}
       </div>
+      {showReview && <TerminalReviewSheet onClose={() => setShowReview(false)} />}
     </div>
   );
 }

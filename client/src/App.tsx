@@ -3,6 +3,7 @@ import LoginForm from './components/LoginForm';
 import TerminalPanel from './components/TerminalPanel';
 import WindowPicker, { type WindowInfo } from './components/WindowPicker';
 import WindowStream from './components/WindowStream';
+import { onAuthLost } from './authWatchdog';
 import './App.css';
 
 type AuthState = 'loading' | 'anonymous' | 'authenticated';
@@ -53,8 +54,19 @@ function App() {
     loadSession();
   }, []);
 
-  // 映像用WebSocketのみ、ページ非表示化(バックグラウンド化)で切断・復帰時に再接続する
-  // (ターミナル・ウィンドウ一覧のWebSocketは対象外。Step7で全WebSocket共通の死活監視を追加する)。
+  // 各WebSocketが再接続に繰り返し失敗した際(サーバー再起動によるセッション失効等)、
+  // authWatchdogが/api/sessionで失効を確認したらログイン画面へ戻す(Step 7レビュー対応)。
+  // 新しい匿名セッション用のCSRFトークンも併せて受け取り、ログインフォームに引き継ぐ。
+  useEffect(() => {
+    return onAuthLost((freshCsrfToken) => {
+      setCsrfToken(freshCsrfToken);
+      setAuthState('anonymous');
+    });
+  }, []);
+
+  // 映像用WebSocketのみ、ページ非表示化(バックグラウンド化)で明示的に切断・復帰時に再接続する
+  // (Step 6要件)。ターミナル・ウィンドウ一覧のWebSocketは非表示時も切断せず、切断された場合の
+  // 復帰時即時再接続はreconnectingWs側のvisibilitychange処理が担う(Step 7)。
   useEffect(() => {
     function handleVisibility() {
       setPageHidden(document.hidden);

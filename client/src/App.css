@@ -122,7 +122,7 @@
 .status-dot.status-connecting {
   background: var(--accent);
 }
-.status-dot.status-disconnected,
+.status-dot.status-reconnecting,
 .status-dot.status-superseded {
   background: var(--danger);
 }

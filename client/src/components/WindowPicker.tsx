@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import { createReconnectingWs, type ReconnectingWsHandle } from '../reconnectingWs';
+import { reportUnstableClose } from '../authWatchdog';
 
 export interface WindowInfo {
   id: string;
   title: string;
 }
 
-type ConnStatus = 'connecting' | 'connected' | 'disconnected';
+type ConnStatus = 'connecting' | 'connected' | 'reconnecting';
 
 const CAP_WARNING_MS = 3000;
 
@@ -25,47 +27,41 @@ function WindowPicker({ openIds, atCap, maxActiveStreams, onToggle, onWindowsCha
   const [windows, setWindows] = useState<WindowInfo[]>([]);
   const [status, setStatus] = useState<ConnStatus>('connecting');
   const [capWarning, setCapWarning] = useState(false);
-  const [connectSeq, setConnectSeq] = useState(0);
   const capWarningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onWindowsChangeRef = useRef(onWindowsChange);
   onWindowsChangeRef.current = onWindowsChange;
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsHandleRef = useRef<ReconnectingWsHandle | null>(null);
 
   useEffect(() => {
-    setStatus('connecting');
+    // 自動再接続(Step 7)。一覧配信は常時受けたいので、どんな切断でも無条件に再接続する。
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${location.host}/ws/windows`);
-    wsRef.current = ws;
-
-    ws.addEventListener('open', () => setStatus('connected'));
-
-    ws.addEventListener('message', (ev) => {
-      if (typeof ev.data !== 'string') return;
-      try {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === 'windows' && Array.isArray(msg.windows)) {
-          setWindows(msg.windows);
-          onWindowsChangeRef.current(msg.windows);
+    const wsHandle = createReconnectingWs({
+      url: `${proto}//${location.host}/ws/windows`,
+      onConnecting: () => setStatus('connecting'),
+      onOpen: () => setStatus('connected'),
+      onMessage: (ev) => {
+        if (typeof ev.data !== 'string') return;
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'windows' && Array.isArray(msg.windows)) {
+            setWindows(msg.windows);
+            onWindowsChangeRef.current(msg.windows);
+          }
+        } catch {
+          // 不正なJSONは無視
         }
-      } catch {
-        // 不正なJSONは無視
-      }
+      },
+      onClose: () => true,
+      onRetryScheduled: () => setStatus('reconnecting'),
+      onRepeatedFailure: reportUnstableClose,
     });
-
-    ws.addEventListener('close', () => {
-      // effectのcleanupで閉じた旧接続のcloseイベントが、再接続後に非同期で届くことがある
-      // (React StrictModeの開発時二重実行等)。wsRefが既に別の接続に差し替わっていれば無視する。
-      if (wsRef.current !== ws) return;
-      wsRef.current = null;
-      setStatus('disconnected');
-    });
-    ws.addEventListener('error', () => {});
+    wsHandleRef.current = wsHandle;
 
     return () => {
-      ws.close();
-      wsRef.current = null;
+      wsHandle.stop();
+      wsHandleRef.current = null;
     };
-  }, [connectSeq]);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -86,7 +82,7 @@ function WindowPicker({ openIds, atCap, maxActiveStreams, onToggle, onWindowsCha
   const statusLabel: Record<ConnStatus, string> = {
     connecting: '接続中…',
     connected: '接続済み',
-    disconnected: '切断されました',
+    reconnecting: '切断されました(自動再接続待ち)',
   };
 
   return (
@@ -97,8 +93,8 @@ function WindowPicker({ openIds, atCap, maxActiveStreams, onToggle, onWindowsCha
         <span className="window-picker-count">
           配信中 {openIds.size}/{maxActiveStreams}
         </span>
-        {status === 'disconnected' && (
-          <button type="button" className="statusbar-btn" onClick={() => setConnectSeq((n) => n + 1)}>
+        {status === 'reconnecting' && (
+          <button type="button" className="statusbar-btn" onClick={() => wsHandleRef.current?.retryNow()}>
             再接続
           </button>
         )}

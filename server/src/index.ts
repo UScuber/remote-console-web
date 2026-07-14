@@ -10,6 +10,7 @@ import { registerTerminalWebSocket } from './terminal/ptyManager';
 import { terminalHistoryHandler } from './terminal/historyHandler';
 import { registerWindowsWebSocket, startWindowDetector } from './stream/windowDetector';
 import { registerWindowStreamWebSocket, MAX_ACTIVE_STREAMS } from './stream/ffmpegStream';
+import { enableHeartbeat } from './wsHeartbeat';
 
 const PORT = Number(process.env.PORT) || 8443;
 const LOGIN_PASSWORD_HASH = process.env.LOGIN_PASSWORD_HASH;
@@ -90,12 +91,15 @@ const server = createServer(app);
 
 const terminalWss = new WebSocketServer({ noServer: true });
 registerTerminalWebSocket(terminalWss);
+enableHeartbeat(terminalWss);
 
 const windowsWss = new WebSocketServer({ noServer: true });
 registerWindowsWebSocket(windowsWss);
+enableHeartbeat(windowsWss);
 
 const windowStreamWss = new WebSocketServer({ noServer: true });
 registerWindowStreamWebSocket(windowStreamWss);
+enableHeartbeat(windowStreamWss);
 
 startWindowDetector();
 

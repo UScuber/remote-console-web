@@ -6,8 +6,10 @@ import '@xterm/xterm/css/xterm.css';
 import { enableTerminalTouchScroll } from './terminalTouchScroll';
 import CommandInputBar from './CommandInputBar';
 import TerminalReviewSheet from './TerminalReviewSheet';
+import { createReconnectingWs, type ReconnectingWsHandle } from '../reconnectingWs';
+import { reportUnstableClose } from '../authWatchdog';
 
-type Status = 'connecting' | 'connected' | 'disconnected' | 'superseded';
+type Status = 'connecting' | 'connected' | 'reconnecting' | 'superseded';
 
 // Ctrl修飾を1文字だけ適用する(例: "a" -> 0x01)。制御文字化できない入力はそのまま返す。
 function applyCtrl(data: string): string {
@@ -34,22 +36,18 @@ const SPECIAL_KEYS: { label: string; seq: string }[] = [
 function TerminalPanel() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsHandleRef = useRef<ReconnectingWsHandle | null>(null);
   const ctrlArmedRef = useRef(false);
   const isComposingRef = useRef(false);
   const fitPendingRef = useRef(false);
 
   const [status, setStatus] = useState<Status>('connecting');
   const [ctrlArmed, setCtrlArmed] = useState(false);
-  const [connectSeq, setConnectSeq] = useState(0);
   const [showInputBar, setShowInputBar] = useState(false);
   const [showReview, setShowReview] = useState(false);
 
   function sendMessage(msg: Record<string, unknown>) {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(msg));
-    }
+    wsHandleRef.current?.send(JSON.stringify(msg));
   }
 
   function sendInput(data: string) {
@@ -164,35 +162,38 @@ function TerminalPanel() {
       sendMessage({ type: 'resize', cols, rows });
     });
 
-    setStatus('connecting');
+    // 自動再接続(Step 7)。Terminalインスタンスは作り直さないため、再接続しても
+    // スクロールバックが保持される(画面はtmuxのattachが再描画する)。
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${location.host}/ws/terminal`);
-    wsRef.current = ws;
-
-    ws.addEventListener('open', () => {
-      setStatus('connected');
-      fitAddon.fit();
-      // fit()はcols/rowsが直前から変化していない場合onResizeを発火しないため、
-      // 接続直後のサイズを明示的に送る(送らないとpty側がspawn時のデフォルト80x24のまま固定される)。
-      sendMessage({ type: 'resize', cols: term.cols, rows: term.rows });
-      term.focus();
+    const wsHandle = createReconnectingWs({
+      url: `${proto}//${location.host}/ws/terminal`,
+      onConnecting: () => setStatus('connecting'),
+      onOpen: (ws) => {
+        setStatus('connected');
+        fitAddon.fit();
+        // fit()はcols/rowsが直前から変化していない場合onResizeを発火しないため、
+        // 接続直後のサイズを明示的に送る(送らないとpty側がspawn時のデフォルト80x24のまま固定される)。
+        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        term.focus();
+      },
+      onMessage: (ev) => {
+        if (typeof ev.data === 'string') {
+          term.write(ev.data);
+        }
+      },
+      onClose: (ev) => {
+        if (ev.code === 4000) {
+          // 別クライアントに置き換えられた(後勝ちポリシー)。自動で再接続すると
+          // クライアント同士が接続を奪い合い続けるため、手動の再接続ボタンのみとする。
+          setStatus('superseded');
+          return false;
+        }
+        return true;
+      },
+      onRetryScheduled: () => setStatus('reconnecting'),
+      onRepeatedFailure: reportUnstableClose,
     });
-
-    ws.addEventListener('message', (ev) => {
-      if (typeof ev.data === 'string') {
-        term.write(ev.data);
-      }
-    });
-
-    ws.addEventListener('close', (ev) => {
-      if (wsRef.current === ws) {
-        wsRef.current = null;
-      }
-      setStatus(ev.code === 4000 ? 'superseded' : 'disconnected');
-    });
-
-    // 'close'が後続するため、ここでは状態更新しない(二重更新防止)。
-    ws.addEventListener('error', () => {});
+    wsHandleRef.current = wsHandle;
 
     const resizeObserver = new ResizeObserver(() => scheduleFit());
     resizeObserver.observe(container);
@@ -205,19 +206,17 @@ function TerminalPanel() {
       window.removeEventListener('resize', handleWindowResize);
       textarea?.removeEventListener('compositionstart', handleCompositionStart);
       textarea?.removeEventListener('compositionend', handleCompositionEnd);
-      ws.close();
-      wsRef.current = null;
+      wsHandle.stop();
+      wsHandleRef.current = null;
       term.dispose();
       termRef.current = null;
     };
-    // 現状はconnectSeqの変化でTerminalごと作り直している(再接続のたびにスクロールバックが消える)。
-    // Step 7で自動再接続ロジックを入れる際、Terminal生成とWebSocket接続のeffectを分離する。
-  }, [connectSeq]);
+  }, []);
 
   const statusLabel: Record<Status, string> = {
     connecting: '接続中…',
     connected: '接続済み',
-    disconnected: '切断されました',
+    reconnecting: '切断されました(自動再接続待ち)',
     superseded: '別の接続に置き換えられました',
   };
 
@@ -241,8 +240,8 @@ function TerminalPanel() {
           >
             入力欄
           </button>
-          {(status === 'disconnected' || status === 'superseded') && (
-            <button type="button" className="statusbar-btn" onClick={() => setConnectSeq((n) => n + 1)}>
+          {(status === 'reconnecting' || status === 'superseded') && (
+            <button type="button" className="statusbar-btn" onClick={() => wsHandleRef.current?.retryNow()}>
               再接続
             </button>
           )}

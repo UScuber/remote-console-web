@@ -17,7 +17,13 @@ const BACKPRESSURE_THRESHOLD_BYTES = 1 * 1024 * 1024;
 // (Step 0検証1で最小化・画面外配置時の挙動が未確定だったための一律検知)。
 const FIRST_FRAME_TIMEOUT_MS = 5000;
 
-const MAX_ACTIVE_STREAMS = Number(process.env.MAX_ACTIVE_STREAMS) || 3;
+// 非アクティブ(帯域節約モード)なストリームの静止画更新間隔。クライアントが{type:'active'}で
+// 通知するactiveフラグに応じてここで送信自体を間引く(帯域・エンコード後送出コストを実際に削減する。
+// クライアント側でフレームを受信後に捨てるだけでは帯域が節約できないため、送信元であるここで絞る)。
+const STATIC_STREAM_INTERVAL_MS = 3000;
+
+// クライアント側の二重防御(WindowPicker)でも同じ値を使うため export する。
+export const MAX_ACTIVE_STREAMS = Number(process.env.MAX_ACTIVE_STREAMS) || 3;
 
 const JPEG_SOI = Buffer.from([0xff, 0xd8]);
 const JPEG_EOI = Buffer.from([0xff, 0xd9]);
@@ -25,6 +31,8 @@ const JPEG_EOI = Buffer.from([0xff, 0xd9]);
 // クライアントへの通知理由とWebSocket close codeの対応表。
 // 配信終了系・拒否系のいずれも必ずこの表を通して{type:'ended', reason}を送ってからcloseするため、
 // クライアント側はcloseコードを見なくてもendedメッセージのreasonだけ見ればよい。
+// このキー一覧はクライアント側 client/src/components/WindowStream.tsx の END_REASON_LABEL と
+// 文字列一致で対応させているため、キーを追加・変更したら両方直すこと。
 const CLOSE_CODES = {
   superseded: 4000,
   spawn_failed: 4001,
@@ -44,6 +52,10 @@ interface StreamEntry {
   ws: WebSocket;
   unsubscribeWindowChange: () => void;
   firstFrameTimer: ReturnType<typeof setTimeout>;
+  // クライアントから{type:'active', value:boolean}で通知される表示状態。falseの間は
+  // STATIC_STREAM_INTERVAL_MSごとにしか送信しない(帯域節約モード)。
+  active: boolean;
+  lastSentAt: number;
 }
 
 // windowIdごとに最大1つのffmpegプロセス(同一idへの接続は後勝ち)
@@ -151,7 +163,22 @@ export function registerWindowStreamWebSocket(wss: WebSocketServer): void {
       }
     });
 
-    activeStreams.set(windowId, { ffmpeg, ws, unsubscribeWindowChange, firstFrameTimer });
+    // 最初の{type:'active'}が届くまでは安全側(フル解像度fps)にしておく。通常は接続直後に
+    // クライアントから届くため、実際にfull fpsで送られる期間はごくわずか。
+    activeStreams.set(windowId, { ffmpeg, ws, unsubscribeWindowChange, firstFrameTimer, active: true, lastSentAt: 0 });
+
+    ws.on('message', (raw) => {
+      const entry = activeStreams.get(windowId);
+      if (!entry || entry.ws !== ws) return;
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg && msg.type === 'active' && typeof msg.value === 'boolean') {
+          entry.active = msg.value;
+        }
+      } catch {
+        // 不正なJSONは無視
+      }
+    });
 
     ffmpeg.stdout.on('data', (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]);
@@ -177,7 +204,13 @@ export function registerWindowStreamWebSocket(wss: WebSocketServer): void {
           clearTimeout(firstFrameTimer);
         }
 
-        if (ws.readyState === ws.OPEN && ws.bufferedAmount <= BACKPRESSURE_THRESHOLD_BYTES) {
+        const entry = activeStreams.get(windowId);
+        const now = Date.now();
+        // 非アクティブなストリームはSTATIC_STREAM_INTERVAL_MSごとにしか送信しない
+        // (帯域節約モード。送信自体を間引くことで実際に帯域を削減する)。
+        const dueForStaticUpdate = !entry || entry.active || now - entry.lastSentAt >= STATIC_STREAM_INTERVAL_MS;
+        if (dueForStaticUpdate && ws.readyState === ws.OPEN && ws.bufferedAmount <= BACKPRESSURE_THRESHOLD_BYTES) {
+          if (entry) entry.lastSentAt = now;
           ws.send(frame);
         }
       }

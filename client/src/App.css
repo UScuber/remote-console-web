@@ -59,6 +59,37 @@
   flex-direction: column;
 }
 
+.tab-bar {
+  display: flex;
+  flex: 0 0 auto;
+  background: var(--panel-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab-btn {
+  flex: 1 1 0;
+  padding: 10px 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--fg);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.tab-btn-active {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tab-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .terminal-panel {
   height: 100%;
   display: flex;
@@ -194,6 +225,172 @@
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
+}
+
+/* ウィンドウ一覧(WindowPicker)。映像タブ上部に固定表示し、下に開いたパネル一覧が続く。 */
+.window-picker {
+  flex: 0 0 auto;
+  max-height: 40%;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+}
+
+.window-picker-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--panel-bg);
+  flex: 0 0 auto;
+}
+
+.window-picker-count {
+  margin-left: auto;
+  color: var(--fg);
+  opacity: 0.8;
+}
+
+.window-picker-warning {
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--danger);
+  background: var(--panel-bg);
+}
+
+.window-picker-empty {
+  padding: 16px;
+  font-size: 14px;
+  color: var(--muted, #999);
+}
+
+.window-picker-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.window-picker-item {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.window-picker-item-open {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #111;
+}
+
+.window-picker-item-disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 開いている映像パネルの一覧。 */
+.window-stream-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+
+.window-stream-list-empty {
+  padding: 16px;
+  font-size: 14px;
+  color: var(--muted, #999);
+  text-align: center;
+}
+
+.window-stream {
+  flex: 0 0 auto;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel-bg);
+  cursor: pointer;
+}
+
+.window-stream-active {
+  border-color: var(--accent);
+}
+
+.window-stream-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  background: var(--panel-bg);
+}
+
+.window-stream-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.window-stream-status {
+  color: var(--fg);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.window-stream-close {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.window-stream-body {
+  position: relative;
+  width: 100%;
+  background: #000;
+  display: flex;
+}
+
+.window-stream-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.window-stream-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  background: rgba(0, 0, 0, 0.5);
+  font-size: 14px;
+  text-align: center;
+  padding: 8px;
 }
 
 /* テキスト表示: ライブ画面に重ねる全画面オーバーレイ。 */

@@ -9,7 +9,7 @@ import { sessionMiddleware, recordLoginFailure, recordLoginSuccess, SESSION_COOK
 import { registerTerminalWebSocket } from './terminal/ptyManager';
 import { terminalHistoryHandler } from './terminal/historyHandler';
 import { registerWindowsWebSocket, startWindowDetector } from './stream/windowDetector';
-import { registerWindowStreamWebSocket } from './stream/ffmpegStream';
+import { registerWindowStreamWebSocket, MAX_ACTIVE_STREAMS } from './stream/ffmpegStream';
 
 const PORT = Number(process.env.PORT) || 8443;
 const LOGIN_PASSWORD_HASH = process.env.LOGIN_PASSWORD_HASH;
@@ -33,7 +33,7 @@ app.use(sessionMiddleware);
 // クライアント(SPA)は/api/sessionで認証状態とCSRFトークンを取得してから描画を分岐する。
 app.get('/api/session', (req, res) => {
   const csrfToken = generateCsrfToken(req);
-  res.json({ authenticated: Boolean(req.session.authenticated), csrfToken });
+  res.json({ authenticated: Boolean(req.session.authenticated), csrfToken, maxActiveStreams: MAX_ACTIVE_STREAMS });
 });
 
 // 「テキスト表示」用: tmuxスクロールバックを色付きで返す。参照のみのGETなので認証のみ(CSRF不要)。

@@ -8,6 +8,8 @@ import { requireAuth, csrfProtection, generateCsrfToken, loginRateLimiter, isReq
 import { sessionMiddleware, recordLoginFailure, recordLoginSuccess, SESSION_COOKIE_NAME } from './auth/session';
 import { registerTerminalWebSocket } from './terminal/ptyManager';
 import { terminalHistoryHandler } from './terminal/historyHandler';
+import { registerWindowsWebSocket, startWindowDetector } from './stream/windowDetector';
+import { registerWindowStreamWebSocket } from './stream/ffmpegStream';
 
 const PORT = Number(process.env.PORT) || 8443;
 const LOGIN_PASSWORD_HASH = process.env.LOGIN_PASSWORD_HASH;
@@ -89,10 +91,26 @@ const server = createServer(app);
 const terminalWss = new WebSocketServer({ noServer: true });
 registerTerminalWebSocket(terminalWss);
 
+const windowsWss = new WebSocketServer({ noServer: true });
+registerWindowsWebSocket(windowsWss);
+
+const windowStreamWss = new WebSocketServer({ noServer: true });
+registerWindowStreamWebSocket(windowStreamWss);
+
+startWindowDetector();
+
+function resolveWss(pathname: string): WebSocketServer | undefined {
+  if (pathname === '/ws/terminal') return terminalWss;
+  if (pathname === '/ws/windows') return windowsWss;
+  if (pathname.startsWith('/ws/window/')) return windowStreamWss;
+  return undefined;
+}
+
 server.on('upgrade', (req, socket, head) => {
   const { pathname } = new URL(req.url ?? '', 'http://localhost');
+  const wss = resolveWss(pathname);
 
-  if (pathname !== '/ws/terminal') {
+  if (!wss) {
     socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
     socket.destroy();
     return;
@@ -105,8 +123,8 @@ server.on('upgrade', (req, socket, head) => {
         socket.destroy();
         return;
       }
-      terminalWss.handleUpgrade(req, socket, head, (ws) => {
-        terminalWss.emit('connection', ws, req);
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
       });
     })
     .catch(() => {

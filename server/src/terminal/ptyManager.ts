@@ -9,9 +9,9 @@ if (!TMUX_SESSION_NAME) {
   throw new Error('TMUX_SESSION_NAME is not set. Check .env');
 }
 
-const SIM_PROJECT_DIR = process.env.SIM_PROJECT_DIR;
-if (!SIM_PROJECT_DIR) {
-  throw new Error('SIM_PROJECT_DIR is not set. Check .env');
+const PROJECT_DIR = process.env.PROJECT_DIR;
+if (!PROJECT_DIR) {
+  throw new Error('PROJECT_DIR is not set. Check .env');
 }
 
 const DEFAULT_COLS = 80;
@@ -20,12 +20,12 @@ const DEFAULT_ROWS = 24;
 function spawnTerminal(): pty.IPty {
   return pty.spawn(
     'tmux',
-    ['-f', TMUX_CONF_PATH, 'new-session', '-A', '-s', TMUX_SESSION_NAME as string, '-c', SIM_PROJECT_DIR as string],
+    ['-f', TMUX_CONF_PATH, 'new-session', '-A', '-s', TMUX_SESSION_NAME as string, '-c', PROJECT_DIR as string],
     {
       name: 'xterm-256color',
       cols: DEFAULT_COLS,
       rows: DEFAULT_ROWS,
-      cwd: SIM_PROJECT_DIR,
+      cwd: PROJECT_DIR,
       env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
     },
   );

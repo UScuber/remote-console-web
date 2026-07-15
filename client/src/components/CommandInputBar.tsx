@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
 
 interface CommandInputBarProps {
   onSubmit: (text: string) => void;
@@ -6,31 +6,32 @@ interface CommandInputBarProps {
 
 const MAX_TEXTAREA_HEIGHT_PX = 160;
 
-/**
- * ターミナル最下部に固定表示する行入力欄。履歴をスクロールして読みながらでも、常に見える位置から
- * コマンドを組み立てて送れる。素のシェルコマンド用(全画面TUIは従来どおりターミナルへ直接入力)。
- */
+// 素のシェルコマンド用の行入力欄、全画面TUIは従来どおりターミナルへ直接入力する
 function CommandInputBar({ onSubmit }: CommandInputBarProps) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = 'auto';
+    el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT_PX)}px`;
   }, [text]);
 
   function submit() {
     if (text.length === 0) return;
     onSubmit(text);
-    setText('');
+    setText("");
     textareaRef.current?.focus();
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Ctrl+Enterで送信。素のEnterは改行(既定動作のまま)。IME変換確定のEnterでは送信しない。
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
+    // 素のEnterは改行に譲り、IME変換確定のEnterは除外してCtrl+Enterのみ送信する
+    if (
+      e.key === "Enter" &&
+      (e.ctrlKey || e.metaKey) &&
+      !e.nativeEvent.isComposing
+    ) {
       e.preventDefault();
       submit();
     }
@@ -54,7 +55,7 @@ function CommandInputBar({ onSubmit }: CommandInputBarProps) {
       <button
         type="button"
         className="command-send-btn"
-        // pointerdownで送信し既定動作を止めることで、フォーカス(キーボード)を維持する。
+        // pointerdownの既定動作を止めてtextareaのフォーカス(ソフトキーボード)を維持する
         onPointerDown={(e) => {
           e.preventDefault();
           submit();

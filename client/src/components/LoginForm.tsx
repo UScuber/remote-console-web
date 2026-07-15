@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import type { FormEvent } from 'react';
+import { useState } from "react";
+import type { FormEvent } from "react";
 
 interface Props {
   csrfToken: string;
@@ -14,7 +14,7 @@ interface LoginResponse {
 }
 
 function LoginForm({ csrfToken, onLoginSuccess }: Props) {
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -23,19 +23,21 @@ function LoginForm({ csrfToken, onLoginSuccess }: Props) {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-        credentials: 'same-origin',
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+        credentials: "same-origin",
         body: JSON.stringify({ password }),
       });
       const data: LoginResponse = await res.json();
       if (!res.ok) {
         if (res.status === 429) {
           const seconds = Math.ceil((data.retryAfterMs ?? 0) / 1000);
-          setError(`ログイン失敗が続いたためロックされています(${seconds}秒後に再試行可能)`);
+          setError(
+            `ログイン失敗が続いたためロックされています(${seconds}秒後に再試行可能)`,
+          );
         } else {
-          setError('パスワードが違います');
+          setError("パスワードが違います");
         }
         return;
       }
@@ -43,7 +45,7 @@ function LoginForm({ csrfToken, onLoginSuccess }: Props) {
         onLoginSuccess(data.csrfToken);
       }
     } catch {
-      setError('通信エラーが発生しました');
+      setError("通信エラーが発生しました");
     } finally {
       setSubmitting(false);
     }

@@ -1,13 +1,16 @@
-// reconnectingWs.tsの薄いラッパー: URLごとに実体を1つだけ持つ参照カウント方式の共有接続。
-// StrictModeの二重マウント対策(詳細はclient/README.md)。
+// URLごとに接続を1本だけ共有する参照カウント方式のラッパー、詳細はclient/README.md参照
 
-import { createReconnectingWs, type ReconnectingWsHandle, type ReconnectingWsOptions } from './reconnectingWs';
+import {
+  createReconnectingWs,
+  type ReconnectingWsHandle,
+  type ReconnectingWsOptions,
+} from "./reconnectingWs";
 
-// 新しい購読者への「今の状態」再生用
+// 新しい購読者への直近状態の再生用
 type LastEvent =
-  | { kind: 'connecting' }
-  | { kind: 'open'; ws: WebSocket }
-  | { kind: 'retryScheduled'; delayMs: number };
+  | { kind: "connecting" }
+  | { kind: "open"; ws: WebSocket }
+  | { kind: "retryScheduled"; delayMs: number };
 
 interface SharedEntry {
   handle: ReconnectingWsHandle;
@@ -20,8 +23,8 @@ interface SharedEntry {
 const registry = new Map<string, SharedEntry>();
 
 function replay(opts: ReconnectingWsOptions, ev: LastEvent): void {
-  if (ev.kind === 'connecting') opts.onConnecting?.();
-  else if (ev.kind === 'open') opts.onOpen?.(ev.ws);
+  if (ev.kind === "connecting") opts.onConnecting?.();
+  else if (ev.kind === "open") opts.onOpen?.(ev.ws);
   else opts.onRetryScheduled?.(ev.delayMs);
 }
 
@@ -29,7 +32,7 @@ export interface SharedWsHandle {
   send(data: string): void;
   retryNow(): void;
   suspend(): void;
-  /** 購読解除。他に購読者がいなければマイクロタスクで実際に閉じる。 */
+  /** 購読解除、他に購読者がいなければマイクロタスクで実際に閉じる */
   stop(): void;
 }
 
@@ -38,29 +41,30 @@ export function subscribeSharedWs(options: ReconnectingWsOptions): SharedWsHandl
   let entry = registry.get(url);
 
   if (!entry) {
-    // connect()が同期発火するため、boxはcreateReconnectingWs呼び出し前に用意する
+    // connect()は同期発火するのでboxをcreateReconnectingWsの呼び出し前に用意しておく
     const box: { current: ReconnectingWsOptions } = { current: options };
     const self: { current: SharedEntry | null } = { current: null };
     const handle = createReconnectingWs({
       url,
       binaryType: options.binaryType,
       onConnecting: () => {
-        if (self.current) self.current.lastEvent = { kind: 'connecting' };
+        if (self.current) self.current.lastEvent = { kind: "connecting" };
         box.current.onConnecting?.();
       },
       onOpen: (ws) => {
-        if (self.current) self.current.lastEvent = { kind: 'open', ws };
+        if (self.current) self.current.lastEvent = { kind: "open", ws };
         box.current.onOpen?.(ws);
       },
       onMessage: (ev) => box.current.onMessage?.(ev),
       onClose: (ev) => box.current.onClose(ev),
       onRetryScheduled: (delayMs) => {
-        if (self.current) self.current.lastEvent = { kind: 'retryScheduled', delayMs };
+        if (self.current)
+          self.current.lastEvent = { kind: "retryScheduled", delayMs };
         box.current.onRetryScheduled?.(delayMs);
       },
       onRepeatedFailure: (n) => box.current.onRepeatedFailure?.(n),
     });
-    entry = { handle, box, pendingClose: false, lastEvent: { kind: 'connecting' } };
+    entry = { handle, box, pendingClose: false, lastEvent: { kind: "connecting" } };
     self.current = entry;
     registry.set(url, entry);
   } else {

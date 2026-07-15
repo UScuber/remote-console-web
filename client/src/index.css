@@ -10,7 +10,11 @@
   color-scheme: dark;
   color: var(--fg);
   background: var(--bg);
-  font: 16px/1.4 system-ui, 'Segoe UI', Roboto, sans-serif;
+  font:
+    16px/1.4 system-ui,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -33,7 +37,7 @@ body {
   top: 0;
   left: 0;
   width: 100%;
-  /* ソフトウェアキーボード表示時はmain.tsxが--app-heightを実際に見えている高さへ更新する */
+  /* main.tsxがキーボード表示時に実高さへ更新する変数、詳細はmain.tsx参照 */
   height: var(--app-height, 100%);
   margin: 0;
 }

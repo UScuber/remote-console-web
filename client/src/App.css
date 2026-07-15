@@ -95,7 +95,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  /* レビューモード(.review-sheet)の絶対配置オーバーレイの基準にする。 */
+  /* .review-sheetの絶対配置オーバーレイの基準にする */
   position: relative;
 }
 
@@ -152,15 +152,13 @@
   flex: 1 1 auto;
   min-height: 0;
   padding: 4px;
-  /* 指スクロールは terminalTouchScroll.ts が自前で処理するため、ブラウザ既定の
-     パン・ズームを無効化する(スワイプをtouchmoveでpreventDefaultできるようにする)。 */
+  /* touchmoveでpreventDefaultできるようブラウザ既定のパン・ズームを無効化する */
   touch-action: none;
 }
 
 .key-bar {
   flex: 0 0 auto;
   display: flex;
-  /* 幅に収める: 横スクロールさせず、各ボタンを均等に縮めて1行に収め、狭い画面だけ折り返す。 */
   flex-wrap: wrap;
   gap: 4px;
   padding: 6px;
@@ -188,7 +186,6 @@
   color: #111;
 }
 
-/* ターミナル最下部に固定表示する行入力欄(フッター)。複数行入力で高さが自動的に伸びる。 */
 .command-input-bar {
   flex: 0 0 auto;
   display: flex;
@@ -210,8 +207,12 @@
   border-radius: 6px;
   background: var(--bg);
   color: var(--fg);
-  /* 16px未満はiOS Safariが自動ズームするため。等幅でコマンドを読みやすくする。 */
-  font: 16px/1.4 Menlo, Consolas, 'Courier New', monospace;
+  /* 16px未満はiOS Safariが自動ズームするため */
+  font:
+    16px/1.4 Menlo,
+    Consolas,
+    "Courier New",
+    monospace;
 }
 
 .command-send-btn {
@@ -227,7 +228,6 @@
   touch-action: manipulation;
 }
 
-/* ウィンドウ一覧(WindowPicker)。映像タブ上部に固定表示し、下に開いたパネル一覧が続く。 */
 .window-picker {
   flex: 0 0 auto;
   max-height: 40%;
@@ -304,7 +304,6 @@
   cursor: default;
 }
 
-/* 開いている映像パネルの一覧。 */
 .window-stream-list {
   flex: 1 1 auto;
   min-height: 0;
@@ -393,7 +392,6 @@
   padding: 8px;
 }
 
-/* テキスト表示: ライブ画面に重ねる全画面オーバーレイ。 */
 .review-sheet {
   position: absolute;
   inset: 0;
@@ -436,51 +434,116 @@
   padding: 8px 10px;
   overflow: auto;
   background: var(--bg);
-  /* 未着色テキストの既定色(色付き部分はansi_upがspanのインラインstyleで上書きする)。 */
+  /* 色付き部分はansi_upがspanのインラインstyleで上書きする */
   color: var(--fg);
-  /* 等幅でターミナル出力の崩れを最小化。長い行は折り返してスマホで横あふれさせない。 */
-  font: 14px/1.4 Menlo, Consolas, 'Courier New', monospace;
+  font:
+    14px/1.4 Menlo,
+    Consolas,
+    "Courier New",
+    monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  /* iOSのネイティブ長押し選択・コピーを有効にする(DOMテキストなので効く)。 */
   -webkit-user-select: text;
   user-select: text;
 }
 
-/* ansi_up(use_classes)が出力する標準16色クラスを、ライブ端末(xterm.js既定=Tango)の配色に一致させる。
-   256色/truecolorはansi_upが正確なinline RGBで出すためここでの定義は不要。 */
-.review-sheet-text .ansi-black-fg { color: #2e3436; }
-.review-sheet-text .ansi-red-fg { color: #cc0000; }
-.review-sheet-text .ansi-green-fg { color: #4e9a06; }
-.review-sheet-text .ansi-yellow-fg { color: #c4a000; }
-.review-sheet-text .ansi-blue-fg { color: #3465a4; }
-.review-sheet-text .ansi-magenta-fg { color: #75507b; }
-.review-sheet-text .ansi-cyan-fg { color: #06989a; }
-.review-sheet-text .ansi-white-fg { color: #d3d7cf; }
-.review-sheet-text .ansi-bright-black-fg { color: #555753; }
-.review-sheet-text .ansi-bright-red-fg { color: #ef2929; }
-.review-sheet-text .ansi-bright-green-fg { color: #8ae234; }
-.review-sheet-text .ansi-bright-yellow-fg { color: #fce94f; }
-.review-sheet-text .ansi-bright-blue-fg { color: #729fcf; }
-.review-sheet-text .ansi-bright-magenta-fg { color: #ad7fa8; }
-.review-sheet-text .ansi-bright-cyan-fg { color: #34e2e2; }
-.review-sheet-text .ansi-bright-white-fg { color: #eeeeec; }
+/* 標準16色をxterm.js既定(Tango)に合わせる、256色/truecolorはansi_upがinline RGBで出すため対象外 */
+.review-sheet-text .ansi-black-fg {
+  color: #2e3436;
+}
+.review-sheet-text .ansi-red-fg {
+  color: #cc0000;
+}
+.review-sheet-text .ansi-green-fg {
+  color: #4e9a06;
+}
+.review-sheet-text .ansi-yellow-fg {
+  color: #c4a000;
+}
+.review-sheet-text .ansi-blue-fg {
+  color: #3465a4;
+}
+.review-sheet-text .ansi-magenta-fg {
+  color: #75507b;
+}
+.review-sheet-text .ansi-cyan-fg {
+  color: #06989a;
+}
+.review-sheet-text .ansi-white-fg {
+  color: #d3d7cf;
+}
+.review-sheet-text .ansi-bright-black-fg {
+  color: #555753;
+}
+.review-sheet-text .ansi-bright-red-fg {
+  color: #ef2929;
+}
+.review-sheet-text .ansi-bright-green-fg {
+  color: #8ae234;
+}
+.review-sheet-text .ansi-bright-yellow-fg {
+  color: #fce94f;
+}
+.review-sheet-text .ansi-bright-blue-fg {
+  color: #729fcf;
+}
+.review-sheet-text .ansi-bright-magenta-fg {
+  color: #ad7fa8;
+}
+.review-sheet-text .ansi-bright-cyan-fg {
+  color: #34e2e2;
+}
+.review-sheet-text .ansi-bright-white-fg {
+  color: #eeeeec;
+}
 
-.review-sheet-text .ansi-black-bg { background-color: #2e3436; }
-.review-sheet-text .ansi-red-bg { background-color: #cc0000; }
-.review-sheet-text .ansi-green-bg { background-color: #4e9a06; }
-.review-sheet-text .ansi-yellow-bg { background-color: #c4a000; }
-.review-sheet-text .ansi-blue-bg { background-color: #3465a4; }
-.review-sheet-text .ansi-magenta-bg { background-color: #75507b; }
-.review-sheet-text .ansi-cyan-bg { background-color: #06989a; }
-.review-sheet-text .ansi-white-bg { background-color: #d3d7cf; }
+.review-sheet-text .ansi-black-bg {
+  background-color: #2e3436;
+}
+.review-sheet-text .ansi-red-bg {
+  background-color: #cc0000;
+}
+.review-sheet-text .ansi-green-bg {
+  background-color: #4e9a06;
+}
+.review-sheet-text .ansi-yellow-bg {
+  background-color: #c4a000;
+}
+.review-sheet-text .ansi-blue-bg {
+  background-color: #3465a4;
+}
+.review-sheet-text .ansi-magenta-bg {
+  background-color: #75507b;
+}
+.review-sheet-text .ansi-cyan-bg {
+  background-color: #06989a;
+}
+.review-sheet-text .ansi-white-bg {
+  background-color: #d3d7cf;
+}
 
-/* xterm既定に倣い、太字+標準色は明色で描く(ansi_upが太字に付ける font-weight:bold 属性で判別)。 */
-.review-sheet-text [style*="font-weight:bold"].ansi-black-fg { color: #555753; }
-.review-sheet-text [style*="font-weight:bold"].ansi-red-fg { color: #ef2929; }
-.review-sheet-text [style*="font-weight:bold"].ansi-green-fg { color: #8ae234; }
-.review-sheet-text [style*="font-weight:bold"].ansi-yellow-fg { color: #fce94f; }
-.review-sheet-text [style*="font-weight:bold"].ansi-blue-fg { color: #729fcf; }
-.review-sheet-text [style*="font-weight:bold"].ansi-magenta-fg { color: #ad7fa8; }
-.review-sheet-text [style*="font-weight:bold"].ansi-cyan-fg { color: #34e2e2; }
-.review-sheet-text [style*="font-weight:bold"].ansi-white-fg { color: #eeeeec; }
+/* xterm既定に倣い太字+標準色は明色で描く、太字判定はansi_upが付けるfont-weight:boldを利用 */
+.review-sheet-text [style*="font-weight:bold"].ansi-black-fg {
+  color: #555753;
+}
+.review-sheet-text [style*="font-weight:bold"].ansi-red-fg {
+  color: #ef2929;
+}
+.review-sheet-text [style*="font-weight:bold"].ansi-green-fg {
+  color: #8ae234;
+}
+.review-sheet-text [style*="font-weight:bold"].ansi-yellow-fg {
+  color: #fce94f;
+}
+.review-sheet-text [style*="font-weight:bold"].ansi-blue-fg {
+  color: #729fcf;
+}
+.review-sheet-text [style*="font-weight:bold"].ansi-magenta-fg {
+  color: #ad7fa8;
+}
+.review-sheet-text [style*="font-weight:bold"].ansi-cyan-fg {
+  color: #34e2e2;
+}
+.review-sheet-text [style*="font-weight:bold"].ansi-white-fg {
+  color: #eeeeec;
+}

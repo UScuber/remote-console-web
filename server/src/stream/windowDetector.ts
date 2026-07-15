@@ -1,37 +1,35 @@
-import { execFile } from 'node:child_process';
-import { EventEmitter } from 'node:events';
-import type { WebSocket, WebSocketServer } from 'ws';
+import { execFile } from "node:child_process";
+import { EventEmitter } from "node:events";
+import type { WebSocket, WebSocketServer } from "ws";
+import { suppressSocketErrors } from "../wsSafety";
 
 export interface WindowInfo {
   id: string;
   title: string;
 }
 
-// wmctrl -l のポーリング間隔
 const POLL_INTERVAL_MS = 2000;
 
-// タイトルにこの部分文字列を含むウィンドウは一覧から除外する(このWebアプリ自身のブラウザウィンドウ等)。
-// カンマ区切りで複数指定可能。
-const EXCLUDE_TITLE_SUBSTRINGS = (process.env.WINDOW_TITLE_EXCLUDE ?? '')
-  .split(',')
+// カンマ区切りで複数指定可能、このWebアプリ自身のブラウザウィンドウ等を一覧から除外する用途
+const EXCLUDE_TITLE_SUBSTRINGS = (process.env.WINDOW_TITLE_EXCLUDE ?? "")
+  .split(",")
   .map((s) => s.trim())
   .filter((s) => s.length > 0);
 
 const emitter = new EventEmitter();
 let current: WindowInfo[] = [];
-// 起動直後のwmctrl失敗(Xセッション確立前)でログを埋めないよう、状態遷移時のみ1回だけ出す。
+// 状態遷移時のみログを出す(起動直後のXセッション確立待ちで失敗が続いてもログを埋めない)
 let consecutiveFailures = 0;
 
 function parseWmctrlOutput(stdout: string): WindowInfo[] {
   return stdout
-    .split('\n')
+    .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line) => {
-      // 「ウィンドウID デスクトップ番号 ホスト名 タイトル...」。タイトル自体に空白を含みうるため先頭3フィールドのみ分割する。
-      const parts = line.split(/\s+/);
-      const id = parts[0] ?? '';
-      const title = parts.slice(3).join(' ');
+      // 出力はid desktop host titleの順、titleに空白を含みうるため先頭3列だけ分割する
+      const [id = "", , , ...titleParts] = line.split(/\s+/);
+      const title = titleParts.join(" ");
       return { id, title };
     })
     .filter((w) => w.id.length > 0)
@@ -44,23 +42,26 @@ function sameList(a: WindowInfo[], b: WindowInfo[]): boolean {
 }
 
 function poll(): void {
-  execFile('wmctrl', ['-l'], (err, stdout) => {
+  execFile("wmctrl", ["-l"], (err, stdout) => {
     if (err) {
       consecutiveFailures += 1;
       if (consecutiveFailures === 1) {
-        console.debug('[windowDetector] wmctrl -l failed (will keep retrying):', err.message);
+        console.debug(
+          "[windowDetector] wmctrl -l failed (will keep retrying):",
+          err.message,
+        );
       }
       return;
     }
     if (consecutiveFailures > 0) {
-      console.debug('[windowDetector] wmctrl -l recovered');
+      console.debug("[windowDetector] wmctrl -l recovered");
     }
     consecutiveFailures = 0;
 
     const next = parseWmctrlOutput(stdout);
     if (!sameList(current, next)) {
       current = next;
-      emitter.emit('change', current);
+      emitter.emit("change", current);
     }
   });
 }
@@ -78,26 +79,26 @@ export function getCurrentWindows(): WindowInfo[] {
   return current;
 }
 
-// windowIdが現在の一覧に存在しなくなった(ウィンドウが閉じられた)ことをffmpegStream側が検知するために使う。
-export function onWindowsChange(listener: (windows: WindowInfo[]) => void): () => void {
-  emitter.on('change', listener);
-  return () => emitter.off('change', listener);
+export function onWindowsChange(
+  listener: (windows: WindowInfo[]) => void,
+): () => void {
+  emitter.on("change", listener);
+  return () => emitter.off("change", listener);
 }
 
 export function registerWindowsWebSocket(wss: WebSocketServer): void {
-  wss.on('connection', (ws: WebSocket) => {
-    // モバイル回線切断等で'error'が発生し得る。リスナーが無いとNodeプロセスごと落ちるため必須。
-    ws.on('error', () => {});
+  wss.on("connection", (ws: WebSocket) => {
+    suppressSocketErrors(ws);
 
-    ws.send(JSON.stringify({ type: 'windows', windows: current }));
+    ws.send(JSON.stringify({ type: "windows", windows: current }));
 
     const unsubscribe = onWindowsChange((windows) => {
       if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: 'windows', windows }));
+        ws.send(JSON.stringify({ type: "windows", windows }));
       }
     });
 
-    ws.on('close', () => {
+    ws.on("close", () => {
       unsubscribe();
     });
   });

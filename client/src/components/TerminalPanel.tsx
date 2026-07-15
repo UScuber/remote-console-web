@@ -6,7 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 import { enableTerminalTouchScroll } from './terminalTouchScroll';
 import CommandInputBar from './CommandInputBar';
 import TerminalReviewSheet from './TerminalReviewSheet';
-import { createReconnectingWs, type ReconnectingWsHandle } from '../reconnectingWs';
+import { subscribeSharedWs, type SharedWsHandle } from '../sharedWs';
 import { reportUnstableClose } from '../authWatchdog';
 
 type Status = 'connecting' | 'connected' | 'reconnecting' | 'superseded';
@@ -36,7 +36,7 @@ const SPECIAL_KEYS: { label: string; seq: string }[] = [
 function TerminalPanel() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
-  const wsHandleRef = useRef<ReconnectingWsHandle | null>(null);
+  const wsHandleRef = useRef<SharedWsHandle | null>(null);
   const ctrlArmedRef = useRef(false);
   const isComposingRef = useRef(false);
   const fitPendingRef = useRef(false);
@@ -164,8 +164,9 @@ function TerminalPanel() {
 
     // 自動再接続(Step 7)。Terminalインスタンスは作り直さないため、再接続しても
     // スクロールバックが保持される(画面はtmuxのattachが再描画する)。
+    // 接続はURLごとにsharedWs.tsで共有(StrictMode対策、詳細はclient/README.md)
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHandle = createReconnectingWs({
+    const wsHandle = subscribeSharedWs({
       url: `${proto}//${location.host}/ws/terminal`,
       onConnecting: () => setStatus('connecting'),
       onOpen: (ws) => {

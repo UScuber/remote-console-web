@@ -16,6 +16,8 @@ const STABLE_CONNECTION_MS = 5000;
 // 生存確認のため強制的に張り直す(iOSの長時間サスペンド中に回線が切れてもFINが届かず、
 // 復帰後もreadyStateがOPENのまま残る「ゾンビ接続」対策)。
 const FORCE_RECONNECT_HIDDEN_MS = 10_000;
+// iOS Safariでハンドシェイクが無反応のまま固まることがある対策(詳細はclient/README.md)
+const CONNECT_TIMEOUT_MS = 10_000;
 
 export interface ReconnectingWsOptions {
   url: string;
@@ -76,7 +78,15 @@ export function createReconnectingWs(opts: ReconnectingWsOptions): ReconnectingW
     ws = sock;
     openedAt = 0;
 
+    // 固まったハンドシェイクを打ち切り、通常のclose経路に乗せる
+    const connectTimeout = setTimeout(() => {
+      if (ws === sock && sock.readyState === WebSocket.CONNECTING) {
+        sock.close();
+      }
+    }, CONNECT_TIMEOUT_MS);
+
     sock.addEventListener('open', () => {
+      clearTimeout(connectTimeout);
       if (ws !== sock) return;
       openedAt = Date.now();
       opts.onOpen?.(sock);
@@ -91,6 +101,7 @@ export function createReconnectingWs(opts: ReconnectingWsOptions): ReconnectingW
     sock.addEventListener('error', () => {});
 
     sock.addEventListener('close', (ev) => {
+      clearTimeout(connectTimeout);
       // suspend()/stop()/新規接続への差し替えで自分から捨てた接続のcloseは無視する。
       if (ws !== sock) return;
       ws = null;

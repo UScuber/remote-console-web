@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createReconnectingWs, type ReconnectingWsHandle } from '../reconnectingWs';
+import { subscribeSharedWs, type SharedWsHandle } from '../sharedWs';
 import { reportUnstableClose } from '../authWatchdog';
 
 type Status = 'connecting' | 'streaming' | 'reconnecting' | 'ended';
@@ -44,7 +44,7 @@ function WindowStream({ id, title, active, windowStillListed, pageHidden, onActi
   const [endReason, setEndReason] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const wsHandleRef = useRef<ReconnectingWsHandle | null>(null);
+  const wsHandleRef = useRef<SharedWsHandle | null>(null);
   const statusRef = useRef<Status>('connecting');
   const activeRef = useRef(active);
   const onEndedRef = useRef(onEnded);
@@ -86,9 +86,10 @@ function WindowStream({ id, title, active, windowStillListed, pageHidden, onActi
   }
 
   // マウント時(=新規オープン、または再オープンによる再マウント)に接続する。
+  // 接続はURLごとにsharedWs.tsで共有(StrictMode対策、詳細はclient/README.md)
   useEffect(() => {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHandle = createReconnectingWs({
+    const wsHandle = subscribeSharedWs({
       url: `${proto}//${location.host}/ws/window/${encodeURIComponent(id)}`,
       binaryType: 'arraybuffer',
       onConnecting: () => {

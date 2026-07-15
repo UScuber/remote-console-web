@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createReconnectingWs, type ReconnectingWsHandle } from '../reconnectingWs';
+import { subscribeSharedWs, type SharedWsHandle } from '../sharedWs';
 import { reportUnstableClose } from '../authWatchdog';
 
 export interface WindowInfo {
@@ -30,12 +30,13 @@ function WindowPicker({ openIds, atCap, maxActiveStreams, onToggle, onWindowsCha
   const capWarningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onWindowsChangeRef = useRef(onWindowsChange);
   onWindowsChangeRef.current = onWindowsChange;
-  const wsHandleRef = useRef<ReconnectingWsHandle | null>(null);
+  const wsHandleRef = useRef<SharedWsHandle | null>(null);
 
   useEffect(() => {
     // 自動再接続(Step 7)。一覧配信は常時受けたいので、どんな切断でも無条件に再接続する。
+    // 接続はURLごとにsharedWs.tsで共有(StrictMode対策、詳細はclient/README.md)
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHandle = createReconnectingWs({
+    const wsHandle = subscribeSharedWs({
       url: `${proto}//${location.host}/ws/windows`,
       onConnecting: () => setStatus('connecting'),
       onOpen: () => setStatus('connected'),

@@ -4,6 +4,8 @@ import type { FormEvent } from "react";
 interface Props {
   csrfToken: string;
   onLoginSuccess: (csrfToken: string) => void;
+  /** CSRFトークン失効時(403)にサーバーから取り直した新トークンを親のstateへ反映する */
+  onCsrfRefresh: (csrfToken: string) => void;
 }
 
 interface LoginResponse {
@@ -13,7 +15,17 @@ interface LoginResponse {
   retryAfterMs?: number;
 }
 
-function LoginForm({ csrfToken, onLoginSuccess }: Props) {
+async function fetchFreshCsrfToken(): Promise<string | null> {
+  try {
+    const res = await fetch("/api/session", { credentials: "same-origin" });
+    const data: { csrfToken?: string } = await res.json();
+    return data.csrfToken ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function LoginForm({ csrfToken, onLoginSuccess, onCsrfRefresh }: Props) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -36,8 +48,16 @@ function LoginForm({ csrfToken, onLoginSuccess }: Props) {
           setError(
             `ログイン失敗が続いたためロックされています(${seconds}秒後に再試行可能)`,
           );
-        } else {
+        } else if (data.error === "EBADCSRFTOKEN") {
+          // サーバー再起動等でCSRFトークンが古くなっているケース。パスワードは無関係なので
+          // 「パスワードが違います」とは出さず、新しいトークンを取り直して再送できるようにする
+          setError("画面の情報が古くなっています。もう一度お試しください");
+          const fresh = await fetchFreshCsrfToken();
+          if (fresh) onCsrfRefresh(fresh);
+        } else if (res.status === 401) {
           setError("パスワードが違います");
+        } else {
+          setError("エラーが発生しました。しばらくしてから再度お試しください");
         }
         return;
       }

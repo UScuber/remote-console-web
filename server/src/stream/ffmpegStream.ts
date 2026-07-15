@@ -4,6 +4,13 @@ import type { Readable } from "node:stream";
 import type { WebSocket, WebSocketServer } from "ws";
 import { getCurrentWindows, onWindowsChange } from "./windowDetector";
 import { suppressSocketErrors } from "../wsSafety";
+import { MAX_ACTIVE_STREAMS as MAX_ACTIVE_STREAMS_CONFIG, DISPLAY } from "../config";
+import {
+  WINDOW_STREAM_CLOSE_CODES as CLOSE_CODES,
+  type WindowStreamEndReason as EndReason,
+  type WindowStreamActiveMessage,
+  type WindowStreamEndedMessage,
+} from "remote-console-shared";
 
 type FfmpegProcess = ChildProcessByStdio<null, Readable, Readable>;
 
@@ -20,25 +27,13 @@ const FIRST_FRAME_TIMEOUT_MS = 5000;
 const STATIC_STREAM_INTERVAL_MS = 3000;
 
 // クライアント側の二重防御(WindowPicker)でも同じ値を使うため export する
-export const MAX_ACTIVE_STREAMS = Number(process.env.MAX_ACTIVE_STREAMS) || 3;
+export const MAX_ACTIVE_STREAMS = MAX_ACTIVE_STREAMS_CONFIG;
 
 const JPEG_SOI = Buffer.from([0xff, 0xd8]);
 const JPEG_EOI = Buffer.from([0xff, 0xd9]);
 
-// キー一覧はclient/src/components/WindowStream.tsxのEND_REASON_LABELと文字列一致させること
-const CLOSE_CODES = {
-  superseded: 4000,
-  spawn_failed: 4001,
-  stream_limit: 4003,
-  invalid_window_id: 4004,
-  window_not_found: 4005,
-  window_closed: 4006,
-  ffmpeg_exit: 4007,
-  timeout: 4008,
-  client_closed: 1000,
-} as const;
-
-type EndReason = keyof typeof CLOSE_CODES;
+// reasonの型・close codeの対応はshared/protocol.tsのWindowStreamEndReason/WINDOW_STREAM_CLOSE_CODES。
+// client側のWindowStream.tsxのEND_REASON_LABELはこの型を使い網羅性をコンパイラに保証させている。
 
 interface StreamEntry {
   ffmpeg: FfmpegProcess;
@@ -54,7 +49,8 @@ const activeStreams = new Map<string, StreamEntry>();
 
 function endConnection(ws: WebSocket, reason: EndReason): void {
   if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify({ type: "ended", reason }));
+    const msg: WindowStreamEndedMessage = { type: "ended", reason };
+    ws.send(JSON.stringify(msg));
   }
   if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
     ws.close(CLOSE_CODES[reason], reason);
@@ -65,6 +61,7 @@ function closeStream(windowId: string, reason: EndReason): void {
   const entry = activeStreams.get(windowId);
   if (!entry) return;
   activeStreams.delete(windowId);
+  console.log(`[ffmpegStream] window ${windowId}: stream ended (reason=${reason})`);
   clearTimeout(entry.firstFrameTimer);
   entry.unsubscribeWindowChange();
   try {
@@ -73,6 +70,13 @@ function closeStream(windowId: string, reason: EndReason): void {
     // 既に終了済みのプロセスへのkillはESRCH等で例外になりうるため無視する
   }
   endConnection(entry.ws, reason);
+}
+
+// SIGTERM等でのgraceful shutdown用
+export function shutdownStreams(): void {
+  for (const windowId of [...activeStreams.keys()]) {
+    closeStream(windowId, "server_shutdown");
+  }
 }
 
 function spawnFfmpeg(windowId: string): FfmpegProcess {
@@ -84,7 +88,7 @@ function spawnFfmpeg(windowId: string): FfmpegProcess {
       "-window_id",
       windowId,
       "-i",
-      process.env.DISPLAY || ":0",
+      DISPLAY,
       "-vf",
       `scale=${SCALE_WIDTH}:-1`,
       "-r",
@@ -97,6 +101,36 @@ function spawnFfmpeg(windowId: string): FfmpegProcess {
     ],
     { stdio: ["ignore", "pipe", "pipe"] },
   );
+}
+
+// ffmpegのstdoutは連続バイト列でフレーム境界の通知が無いため、SOI(0xFFD8)〜EOI(0xFFD9)の
+// マーカーで1フレームずつ切り出す。チャンク境界でマーカーが割れるケースがあるため、
+// 未確定分はrestとして呼び出し側に返し次のチャンクと結合させる。
+export function extractJpegFrames(buffer: Buffer): {
+  frames: Buffer[];
+  rest: Buffer;
+} {
+  const frames: Buffer[] = [];
+  let rest = buffer;
+  for (;;) {
+    const start = rest.indexOf(JPEG_SOI);
+    if (start === -1) {
+      // 末尾がSOIの前半(0xFF)だけの場合はチャンク境界で割れている可能性があるので残す
+      rest =
+        rest.length > 0 && rest[rest.length - 1] === 0xff
+          ? rest.subarray(rest.length - 1)
+          : Buffer.alloc(0);
+      break;
+    }
+    const end = rest.indexOf(JPEG_EOI, start + 2);
+    if (end === -1) {
+      if (start > 0) rest = rest.subarray(start);
+      break;
+    }
+    frames.push(rest.subarray(start, end + 2));
+    rest = rest.subarray(end + 2);
+  }
+  return { frames, rest };
 }
 
 export function registerWindowStreamWebSocket(wss: WebSocketServer): void {
@@ -136,6 +170,9 @@ export function registerWindowStreamWebSocket(wss: WebSocketServer): void {
       endConnection(ws, "spawn_failed");
       return;
     }
+    console.log(
+      `[ffmpegStream] window ${windowId}: stream starting (pid=${ffmpeg.pid})`,
+    );
 
     // ffmpegバイナリ不在(ENOENT)等はspawn()の同期throwではなくここで非同期に通知される
     ffmpeg.on("error", (err) => {
@@ -146,7 +183,9 @@ export function registerWindowStreamWebSocket(wss: WebSocketServer): void {
       closeStream(windowId, "spawn_failed");
     });
 
-    let buffer = Buffer.alloc(0);
+    // Buffer.alloc()はBuffer<ArrayBuffer>を返しBuffer.concat()由来の値と型引数が食い違うため、
+    // extractJpegFramesが返すBuffer(Buffer<ArrayBufferLike>)と揃うよう明示的に型注釈する
+    let buffer: Buffer = Buffer.alloc(0);
     let firstFrameReceived = false;
 
     const firstFrameTimer = setTimeout(() => {
@@ -175,8 +214,8 @@ export function registerWindowStreamWebSocket(wss: WebSocketServer): void {
       const entry = activeStreams.get(windowId);
       if (!entry || entry.ws !== ws) return;
       try {
-        const msg = JSON.parse(raw.toString());
-        if (msg && msg.type === "active" && typeof msg.value === "boolean") {
+        const msg = JSON.parse(raw.toString()) as Partial<WindowStreamActiveMessage>;
+        if (msg.type === "active" && typeof msg.value === "boolean") {
           entry.active = msg.value;
         }
       } catch {
@@ -185,30 +224,14 @@ export function registerWindowStreamWebSocket(wss: WebSocketServer): void {
     });
 
     ffmpeg.stdout.on("data", (chunk: Buffer) => {
-      buffer = Buffer.concat([buffer, chunk]);
+      const { frames, rest } = extractJpegFrames(Buffer.concat([buffer, chunk]));
+      buffer = rest;
 
-      // stdoutにフレーム境界の通知は無いため、SOI〜EOIのマーカーで自前に1フレームずつ切り出す
-      for (;;) {
-        const start = buffer.indexOf(JPEG_SOI);
-        if (start === -1) {
-          // 末尾がSOIの前半(0xFF)だけの場合はチャンク境界で割れている可能性があるので残す
-          buffer =
-            buffer.length > 0 && buffer[buffer.length - 1] === 0xff
-              ? buffer.subarray(buffer.length - 1)
-              : Buffer.alloc(0);
-          break;
-        }
-        const end = buffer.indexOf(JPEG_EOI, start + 2);
-        if (end === -1) {
-          if (start > 0) buffer = buffer.subarray(start);
-          break;
-        }
-        const frame = buffer.subarray(start, end + 2);
-        buffer = buffer.subarray(end + 2);
-
+      for (const frame of frames) {
         if (!firstFrameReceived) {
           firstFrameReceived = true;
           clearTimeout(firstFrameTimer);
+          console.log(`[ffmpegStream] window ${windowId}: first frame received`);
         }
 
         const entry = activeStreams.get(windowId);

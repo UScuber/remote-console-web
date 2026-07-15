@@ -5,10 +5,10 @@ import type { Request, Response, NextFunction } from "express";
 import type { IncomingMessage } from "http";
 import {
   SESSION_COOKIE_NAME,
-  sessionSecret,
   sessionStore,
   getLoginLockRemainingMs,
 } from "./session";
+import { SESSION_SECRET } from "../config";
 
 const { csrfSynchronisedProtection, generateToken } = csrfSync();
 
@@ -35,7 +35,7 @@ export function isRequestAuthenticated(req: IncomingMessage): Promise<boolean> {
       resolve(false);
       return;
     }
-    const sessionId = unsign(raw.slice(2), sessionSecret);
+    const sessionId = unsign(raw.slice(2), SESSION_SECRET);
     if (sessionId === false) {
       resolve(false);
       return;

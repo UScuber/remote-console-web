@@ -1,10 +1,6 @@
 import { execFile } from "node:child_process";
 import type { Request, Response } from "express";
-
-const TMUX_SESSION_NAME = process.env.TMUX_SESSION_NAME;
-if (!TMUX_SESSION_NAME) {
-  throw new Error("TMUX_SESSION_NAME is not set. Check .env");
-}
+import { TMUX_SESSION_NAME } from "../config";
 
 const MAX_HISTORY_LINES = 5000;
 const CAPTURE_MAX_BUFFER = 16 * 1024 * 1024;
@@ -14,7 +10,7 @@ export function terminalHistoryHandler(_req: Request, res: Response): void {
     "capture-pane",
     "-pe", // -e: ANSIエスケープ付きで出力しクライアント側で端末と同じ配色に復元する
     "-t",
-    TMUX_SESSION_NAME as string,
+    TMUX_SESSION_NAME,
     "-S",
     `-${MAX_HISTORY_LINES}`,
   ];

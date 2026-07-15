@@ -2,18 +2,13 @@ import * as pty from "node-pty";
 import path from "node:path";
 import type { WebSocket, WebSocketServer } from "ws";
 import { suppressSocketErrors } from "../wsSafety";
+import { TMUX_SESSION_NAME, PROJECT_DIR } from "../config";
+import {
+  TERMINAL_CLOSE_CODES,
+  type TerminalClientMessage,
+} from "remote-console-shared";
 
 const TMUX_CONF_PATH = path.resolve(__dirname, "../../tmux.conf");
-
-const TMUX_SESSION_NAME = process.env.TMUX_SESSION_NAME;
-if (!TMUX_SESSION_NAME) {
-  throw new Error("TMUX_SESSION_NAME is not set. Check .env");
-}
-
-const PROJECT_DIR = process.env.PROJECT_DIR;
-if (!PROJECT_DIR) {
-  throw new Error("PROJECT_DIR is not set. Check .env");
-}
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
@@ -27,9 +22,9 @@ function spawnTerminal(): pty.IPty {
       "new-session",
       "-A",
       "-s",
-      TMUX_SESSION_NAME as string,
+      TMUX_SESSION_NAME,
       "-c",
-      PROJECT_DIR as string,
+      PROJECT_DIR,
     ],
     {
       name: "xterm-256color",
@@ -49,17 +44,20 @@ export function registerTerminalWebSocket(wss: WebSocketServer): void {
     suppressSocketErrors(ws);
 
     if (activeConnection) {
-      activeConnection.ws.close(4000, "superseded");
+      console.log("[ptyManager] new connection supersedes existing one");
+      activeConnection.ws.close(TERMINAL_CLOSE_CODES.superseded, "superseded");
     }
 
     let ptyProcess: pty.IPty;
     try {
       ptyProcess = spawnTerminal();
-    } catch {
-      ws.close(4001, "spawn_failed");
+    } catch (err) {
+      console.error("[ptyManager] failed to spawn tmux:", err);
+      ws.close(TERMINAL_CLOSE_CODES.spawn_failed, "spawn_failed");
       return;
     }
     activeConnection = { ws, ptyProcess };
+    console.log(`[ptyManager] terminal connected (pid=${ptyProcess.pid})`);
 
     let exited = false;
 
@@ -69,8 +67,11 @@ export function registerTerminalWebSocket(wss: WebSocketServer): void {
       }
     });
 
-    ptyProcess.onExit(() => {
+    ptyProcess.onExit(({ exitCode, signal }) => {
       exited = true;
+      console.log(
+        `[ptyManager] tmux client exited (pid=${ptyProcess.pid}, code=${exitCode}, signal=${signal})`,
+      );
       ws.close();
     });
 
@@ -82,7 +83,7 @@ export function registerTerminalWebSocket(wss: WebSocketServer): void {
         return;
       }
       if (typeof msg !== "object" || msg === null) return;
-      const { type } = msg as Record<string, unknown>;
+      const { type } = msg as Partial<TerminalClientMessage>;
 
       if (type === "input") {
         const { data } = msg as Record<string, unknown>;
@@ -106,6 +107,7 @@ export function registerTerminalWebSocket(wss: WebSocketServer): void {
     });
 
     ws.on("close", () => {
+      console.log(`[ptyManager] terminal disconnected (pid=${ptyProcess.pid})`);
       if (!exited) {
         try {
           ptyProcess.kill();
@@ -118,4 +120,17 @@ export function registerTerminalWebSocket(wss: WebSocketServer): void {
       }
     });
   });
+}
+
+// SIGTERM等でのgraceful shutdown用。tmuxサーバー自体・その中のシェルは影響を受けず残る
+export function shutdownTerminal(): void {
+  if (!activeConnection) return;
+  console.log(`[ptyManager] shutting down (pid=${activeConnection.ptyProcess.pid})`);
+  try {
+    activeConnection.ptyProcess.kill();
+  } catch {
+    // 既に終了済みのプロセスへのkillはESRCH等で例外になりうるため無視する
+  }
+  activeConnection.ws.close(TERMINAL_CLOSE_CODES.server_shutdown, "server_shutdown");
+  activeConnection = null;
 }

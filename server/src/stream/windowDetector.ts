@@ -2,38 +2,30 @@ import { execFile } from "node:child_process";
 import { EventEmitter } from "node:events";
 import type { WebSocket, WebSocketServer } from "ws";
 import { suppressSocketErrors } from "../wsSafety";
-
-export interface WindowInfo {
-  id: string;
-  title: string;
-}
+import { WINDOW_TITLE_EXCLUDE } from "../config";
+import type { WindowInfo, WindowsListMessage } from "remote-console-shared";
 
 const POLL_INTERVAL_MS = 2000;
 
-// カンマ区切りで複数指定可能、このWebアプリ自身のブラウザウィンドウ等を一覧から除外する用途
-const EXCLUDE_TITLE_SUBSTRINGS = (process.env.WINDOW_TITLE_EXCLUDE ?? "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter((s) => s.length > 0);
+// 出力はid desktop host titleの空白区切りだが、titleは残りの空白・タブも含めそのまま扱う
+const WMCTRL_LINE_RE = /^(\S+)\s+\S+\s+\S+\s+(.*)$/;
 
 const emitter = new EventEmitter();
 let current: WindowInfo[] = [];
 // 状態遷移時のみログを出す(起動直後のXセッション確立待ちで失敗が続いてもログを埋めない)
 let consecutiveFailures = 0;
 
-function parseWmctrlOutput(stdout: string): WindowInfo[] {
+export function parseWmctrlOutput(stdout: string): WindowInfo[] {
   return stdout
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line) => {
-      // 出力はid desktop host titleの順、titleに空白を含みうるため先頭3列だけ分割する
-      const [id = "", , , ...titleParts] = line.split(/\s+/);
-      const title = titleParts.join(" ");
-      return { id, title };
+      const m = line.match(WMCTRL_LINE_RE);
+      return { id: m?.[1] ?? "", title: m?.[2] ?? "" };
     })
     .filter((w) => w.id.length > 0)
-    .filter((w) => !EXCLUDE_TITLE_SUBSTRINGS.some((sub) => w.title.includes(sub)));
+    .filter((w) => !WINDOW_TITLE_EXCLUDE.some((sub) => w.title.includes(sub)));
 }
 
 function sameList(a: WindowInfo[], b: WindowInfo[]): boolean {
@@ -86,15 +78,19 @@ export function onWindowsChange(
   return () => emitter.off("change", listener);
 }
 
+function toWindowsListMessage(windows: WindowInfo[]): WindowsListMessage {
+  return { type: "windows", windows };
+}
+
 export function registerWindowsWebSocket(wss: WebSocketServer): void {
   wss.on("connection", (ws: WebSocket) => {
     suppressSocketErrors(ws);
 
-    ws.send(JSON.stringify({ type: "windows", windows: current }));
+    ws.send(JSON.stringify(toWindowsListMessage(current)));
 
     const unsubscribe = onWindowsChange((windows) => {
       if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: "windows", windows }));
+        ws.send(JSON.stringify(toWindowsListMessage(windows)));
       }
     });
 

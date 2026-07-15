@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import LoginForm from "./components/LoginForm";
 import TerminalPanel from "./components/TerminalPanel";
-import WindowPicker, { type WindowInfo } from "./components/WindowPicker";
+import WindowPicker from "./components/WindowPicker";
 import WindowStream from "./components/WindowStream";
 import { onAuthLost } from "./authWatchdog";
+import { useWindowList } from "./useWindowList";
 import "./App.css";
 
 type AuthState = "loading" | "anonymous" | "authenticated";
@@ -19,10 +20,6 @@ interface Panel {
   ended: boolean;
 }
 
-function pickNextActiveId(panels: Panel[], excludeId: string): string | null {
-  return panels.find((p) => p.id !== excludeId && !p.ended)?.id ?? null;
-}
-
 function App() {
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [csrfToken, setCsrfToken] = useState("");
@@ -31,7 +28,11 @@ function App() {
   );
 
   const [tab, setTab] = useState<Tab>("terminal");
-  const [windows, setWindows] = useState<WindowInfo[]>([]);
+  const {
+    windows,
+    status: windowListStatus,
+    retryNow: retryWindowList,
+  } = useWindowList();
   const [panels, setPanels] = useState<Panel[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [pageHidden, setPageHidden] = useState(false);
@@ -76,9 +77,19 @@ function App() {
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
+  // activeIdはpanelsから導出する(setPanelsの外でpanelsを読むとstale closureになるため、
+  // handleClosePanel/handlePanelEnded側では計算せずここで一元的に補正する)
+  useEffect(() => {
+    setActiveId((prev) => {
+      if (prev !== null && panels.some((p) => p.id === prev && !p.ended)) {
+        return prev;
+      }
+      return panels.find((p) => !p.ended)?.id ?? null;
+    });
+  }, [panels]);
+
   function handleClosePanel(id: string) {
     setPanels((prev) => prev.filter((p) => p.id !== id));
-    setActiveId((prev) => (prev === id ? pickNextActiveId(panels, id) : prev));
   }
 
   function handleToggleWindow(id: string, title: string) {
@@ -97,7 +108,6 @@ function App() {
 
   function handlePanelEnded(id: string) {
     setPanels((prev) => prev.map((p) => (p.id === id ? { ...p, ended: true } : p)));
-    setActiveId((prev) => (prev === id ? pickNextActiveId(panels, id) : prev));
   }
 
   if (authState === "loading") {
@@ -116,6 +126,7 @@ function App() {
           setCsrfToken(token);
           setAuthState("authenticated");
         }}
+        onCsrfRefresh={setCsrfToken}
       />
     );
   }
@@ -149,11 +160,13 @@ function App() {
         style={{ display: tab === "video" ? "flex" : "none" }}
       >
         <WindowPicker
+          windows={windows}
+          status={windowListStatus}
+          onRetry={retryWindowList}
           openIds={liveIds}
           atCap={liveIds.size >= maxActiveStreams}
           maxActiveStreams={maxActiveStreams}
           onToggle={handleToggleWindow}
-          onWindowsChange={setWindows}
         />
         <div className="window-stream-list">
           {panels.length === 0 && (

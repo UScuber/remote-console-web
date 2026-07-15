@@ -2,6 +2,11 @@
   "name": "remote-console-web",
   "private": true,
   "version": "0.0.0",
+  "workspaces": [
+    "server",
+    "client",
+    "shared"
+  ],
   "scripts": {
     "format": "prettier --write .",
     "format:check": "prettier --check ."

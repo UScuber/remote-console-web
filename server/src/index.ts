@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import express from "express";
 import bcrypt from "bcrypt";
 import { WebSocketServer } from "ws";
+import { PORT, LOGIN_PASSWORD_HASH, IS_PRODUCTION } from "./config";
 import {
   requireAuth,
   csrfProtection,
@@ -17,7 +18,7 @@ import {
   recordLoginSuccess,
   SESSION_COOKIE_NAME,
 } from "./auth/session";
-import { registerTerminalWebSocket } from "./terminal/ptyManager";
+import { registerTerminalWebSocket, shutdownTerminal } from "./terminal/ptyManager";
 import { terminalHistoryHandler } from "./terminal/historyHandler";
 import {
   registerWindowsWebSocket,
@@ -25,22 +26,16 @@ import {
 } from "./stream/windowDetector";
 import {
   registerWindowStreamWebSocket,
+  shutdownStreams,
   MAX_ACTIVE_STREAMS,
 } from "./stream/ffmpegStream";
 import { enableHeartbeat } from "./wsHeartbeat";
-
-const PORT = Number(process.env.PORT) || 8443;
-const LOGIN_PASSWORD_HASH = process.env.LOGIN_PASSWORD_HASH;
-
-if (!LOGIN_PASSWORD_HASH) {
-  throw new Error("LOGIN_PASSWORD_HASH is not set. Check .env");
-}
 
 const app = express();
 app.use(express.json());
 
 // Tailscale ServeはX-Forwarded-Protoを付与しないため、本番でのみSecure Cookie判定用に自前で補う
-if (process.env.NODE_ENV === "production") {
+if (IS_PRODUCTION) {
   app.use((req, _res, next) => {
     req.headers["x-forwarded-proto"] = "https";
     next();
@@ -49,6 +44,9 @@ if (process.env.NODE_ENV === "production") {
 app.use(sessionMiddleware);
 
 app.get("/api/session", (req, res) => {
+  // 未認証でもgenerateCsrfTokenがreq.sessionへ書き込むため、匿名アクセスだけでもMemoryStoreに
+  // セッションが1件保存される(saveUninitialized:falseは新規書き込みには効かない)。Tailnet内
+  // 単一ユーザー運用のため実害はないと判断し許容している(レビュー指摘C-5、詳細はserver/README.md)
   const csrfToken = generateCsrfToken(req);
   res.json({
     authenticated: Boolean(req.session.authenticated),
@@ -59,10 +57,6 @@ app.get("/api/session", (req, res) => {
 
 // 参照のみのGETなのでCSRF保護は不要
 app.get("/api/terminal/history", requireAuth, terminalHistoryHandler);
-
-// '/'はexpress.staticがindex.htmlを自動応答する
-const CLIENT_DIST_DIR = path.resolve(__dirname, "../../client/dist");
-app.use(express.static(CLIENT_DIST_DIR));
 
 app.post("/api/login", loginRateLimiter, csrfProtection, async (req, res) => {
   const password = typeof req.body?.password === "string" ? req.body.password : "";
@@ -96,6 +90,10 @@ app.post("/api/logout", csrfProtection, requireAuth, (req, res) => {
     res.json({ ok: true });
   });
 });
+
+// APIルートを先に固めた後、'/'はexpress.staticがindex.htmlを自動応答する
+const CLIENT_DIST_DIR = path.resolve(__dirname, "../../client/dist");
+app.use(express.static(CLIENT_DIST_DIR));
 
 // エラー発生時もJSONで返す(デフォルトのHTMLエラーページだとクライアントでres.json()が失敗する)
 app.use(
@@ -144,7 +142,15 @@ function resolveWss(pathname: string): WebSocketServer | undefined {
   return undefined;
 }
 
+function onSocketError(err: Error): void {
+  // isRequestAuthenticated()解決前にクライアントが切断すると、リスナー無しのsocketは
+  // 未捕捉例外でプロセスごと落ちる。ws公式サンプルに倣いupgrade直後から'error'を張る
+  console.debug("[index] upgrade socket error:", err.message);
+}
+
 server.on("upgrade", (req, socket, head) => {
+  socket.on("error", onSocketError);
+
   const { pathname } = new URL(req.url ?? "", "http://localhost");
   const wss = resolveWss(pathname);
 
@@ -162,6 +168,7 @@ server.on("upgrade", (req, socket, head) => {
         return;
       }
       wss.handleUpgrade(req, socket, head, (ws) => {
+        socket.removeListener("error", onSocketError);
         wss.emit("connection", ws, req);
       });
     })
@@ -173,3 +180,19 @@ server.on("upgrade", (req, socket, head) => {
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`server listening on http://127.0.0.1:${PORT}`);
 });
+
+// systemd等からのSIGTERM/SIGINTでffmpeg・ptyの子プロセスを明示的に終了させてから終了する
+// (パイプ切断で実質的には死ぬはずだが、明示終了の方が終了タイミングに依存しない)
+let shuttingDown = false;
+function shutdown(signal: NodeJS.Signals): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[index] received ${signal}, shutting down`);
+  shutdownTerminal();
+  shutdownStreams();
+  server.close(() => process.exit(0));
+  // closeがコールバックされない場合(ソケット滞留等)でも確実に終了する
+  setTimeout(() => process.exit(0), 3000).unref();
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

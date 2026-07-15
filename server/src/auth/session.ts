@@ -1,5 +1,6 @@
 import session from "express-session";
 import createMemoryStore from "memorystore";
+import { SESSION_SECRET } from "../config";
 
 declare module "express-session" {
   interface SessionData {
@@ -11,12 +12,6 @@ export const SESSION_COOKIE_NAME = "sessionId";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-const rawSessionSecret = process.env.SESSION_SECRET;
-if (!rawSessionSecret) {
-  throw new Error("SESSION_SECRET is not set. Check .env");
-}
-export const sessionSecret: string = rawSessionSecret;
-
 const MemoryStore = createMemoryStore(session);
 
 // WebSocketアップグレード要求からもCookie検証に使うため個別にexportする(middleware.ts参照)
@@ -24,7 +19,7 @@ export const sessionStore = new MemoryStore({ checkPeriod: 24 * 60 * 60 * 1000 }
 
 export const sessionMiddleware = session({
   name: SESSION_COOKIE_NAME,
-  secret: sessionSecret,
+  secret: SESSION_SECRET,
   store: sessionStore,
   resave: false,
   saveUninitialized: false,

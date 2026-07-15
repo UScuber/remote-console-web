@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "npm run build --prefix ../shared && vite",
+    "build": "npm run build --prefix ../shared && tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
@@ -15,7 +15,8 @@
     "@xterm/xterm": "^6.0.0",
     "ansi_up": "^6.0.6",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "remote-console-shared": "^0.1.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",

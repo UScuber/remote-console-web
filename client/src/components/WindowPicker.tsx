@@ -1,70 +1,32 @@
 import { useEffect, useRef, useState } from "react";
-import { subscribeSharedWs, type SharedWsHandle } from "../sharedWs";
-import { reportUnstableClose } from "../authWatchdog";
-
-export interface WindowInfo {
-  id: string;
-  title: string;
-}
-
-type ConnStatus = "connecting" | "connected" | "reconnecting";
+import type { WindowInfo } from "remote-console-shared";
+import type { WindowListStatus } from "../useWindowList";
+import { CONN_STATUS_LABEL } from "../connectionLabels";
 
 const CAP_WARNING_MS = 3000;
 
 interface WindowPickerProps {
+  windows: WindowInfo[];
+  status: WindowListStatus;
+  onRetry: () => void;
   openIds: Set<string>;
   atCap: boolean;
   maxActiveStreams: number;
   onToggle: (id: string, title: string) => void;
-  onWindowsChange: (windows: WindowInfo[]) => void;
 }
 
-// 一覧はonWindowsChangeで親(App)にも渡し、映像パネル側のvisibilitychange復帰判定に使う
+// /ws/windowsの購読はuseWindowList(App側)が持ち、ここは表示専用(一覧の所有者は常にApp)
 function WindowPicker({
+  windows,
+  status,
+  onRetry,
   openIds,
   atCap,
   maxActiveStreams,
   onToggle,
-  onWindowsChange,
 }: WindowPickerProps) {
-  const [windows, setWindows] = useState<WindowInfo[]>([]);
-  const [status, setStatus] = useState<ConnStatus>("connecting");
   const [capWarning, setCapWarning] = useState(false);
   const capWarningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onWindowsChangeRef = useRef(onWindowsChange);
-  onWindowsChangeRef.current = onWindowsChange;
-  const wsHandleRef = useRef<SharedWsHandle | null>(null);
-
-  useEffect(() => {
-    // 一覧配信は常時受けたいのでどんな切断でも無条件に再接続する
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHandle = subscribeSharedWs({
-      url: `${proto}//${location.host}/ws/windows`,
-      onConnecting: () => setStatus("connecting"),
-      onOpen: () => setStatus("connected"),
-      onMessage: (ev) => {
-        if (typeof ev.data !== "string") return;
-        try {
-          const msg = JSON.parse(ev.data);
-          if (msg.type === "windows" && Array.isArray(msg.windows)) {
-            setWindows(msg.windows);
-            onWindowsChangeRef.current(msg.windows);
-          }
-        } catch {
-          // 不正なJSONは無視
-        }
-      },
-      onClose: () => true,
-      onRetryScheduled: () => setStatus("reconnecting"),
-      onRepeatedFailure: reportUnstableClose,
-    });
-    wsHandleRef.current = wsHandle;
-
-    return () => {
-      wsHandle.stop();
-      wsHandleRef.current = null;
-    };
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -85,26 +47,16 @@ function WindowPicker({
     onToggle(win.id, win.title);
   }
 
-  const statusLabel: Record<ConnStatus, string> = {
-    connecting: "接続中…",
-    connected: "接続済み",
-    reconnecting: "切断されました(自動再接続待ち)",
-  };
-
   return (
     <div className="window-picker">
       <div className="window-picker-header">
         <span className={`status-dot status-${status}`} />
-        <span>{statusLabel[status]}</span>
+        <span>{CONN_STATUS_LABEL[status]}</span>
         <span className="window-picker-count">
           配信中 {openIds.size}/{maxActiveStreams}
         </span>
         {status === "reconnecting" && (
-          <button
-            type="button"
-            className="statusbar-btn"
-            onClick={() => wsHandleRef.current?.retryNow()}
-          >
+          <button type="button" className="statusbar-btn" onClick={onRetry}>
             再接続
           </button>
         )}

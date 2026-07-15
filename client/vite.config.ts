@@ -4,6 +4,9 @@ import react from "@vitejs/plugin-react";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    include: ["remote-console-shared"],
+  },
   server: {
     // Tailnet内の別端末(iPhone等)からdevサーバーへ到達できるようにする
     host: true,

@@ -29,6 +29,7 @@ import {
   shutdownStreams,
   MAX_ACTIVE_STREAMS,
 } from "./stream/ffmpegStream";
+import { getSleepGuardEnabled, setSleepGuardEnabled } from "./display/sleepGuard";
 import { enableHeartbeat } from "./wsHeartbeat";
 
 const app = express();
@@ -57,6 +58,31 @@ app.get("/api/session", (req, res) => {
 
 // 参照のみのGETなのでCSRF保護は不要
 app.get("/api/terminal/history", requireAuth, terminalHistoryHandler);
+
+// 参照のみのGETなのでCSRF保護は不要
+app.get("/api/display/sleep-guard", requireAuth, (_req, res) => {
+  res.json({ enabled: getSleepGuardEnabled() });
+});
+
+app.post(
+  "/api/display/sleep-guard",
+  csrfProtection,
+  requireAuth,
+  async (req, res) => {
+    const nextEnabled = req.body?.enabled;
+    if (typeof nextEnabled !== "boolean") {
+      res.status(400).json({ error: "invalid_body" });
+      return;
+    }
+    try {
+      await setSleepGuardEnabled(nextEnabled);
+      res.json({ enabled: getSleepGuardEnabled() });
+    } catch (err) {
+      console.error("[index] sleep-guard xset failed:", (err as Error).message);
+      res.status(500).json({ error: "xset_failed" });
+    }
+  },
+);
 
 app.post("/api/login", loginRateLimiter, csrfProtection, async (req, res) => {
   const password = typeof req.body?.password === "string" ? req.body.password : "";

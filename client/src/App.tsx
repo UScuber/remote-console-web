@@ -167,6 +167,7 @@ function App() {
           atCap={liveIds.size >= maxActiveStreams}
           maxActiveStreams={maxActiveStreams}
           onToggle={handleToggleWindow}
+          csrfToken={csrfToken}
         />
         <div className="window-stream-list">
           {panels.length === 0 && (

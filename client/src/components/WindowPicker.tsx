@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { WindowInfo } from "remote-console-shared";
 import type { WindowListStatus } from "../useWindowList";
 import { CONN_STATUS_LABEL } from "../connectionLabels";
+import SleepGuardToggle from "./SleepGuardToggle";
 
 const CAP_WARNING_MS = 3000;
 
@@ -13,6 +14,7 @@ interface WindowPickerProps {
   atCap: boolean;
   maxActiveStreams: number;
   onToggle: (id: string, title: string) => void;
+  csrfToken: string;
 }
 
 // /ws/windowsの購読はuseWindowList(App側)が持ち、ここは表示専用(一覧の所有者は常にApp)
@@ -24,6 +26,7 @@ function WindowPicker({
   atCap,
   maxActiveStreams,
   onToggle,
+  csrfToken,
 }: WindowPickerProps) {
   const [capWarning, setCapWarning] = useState(false);
   const capWarningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -55,6 +58,7 @@ function WindowPicker({
         <span className="window-picker-count">
           配信中 {openIds.size}/{maxActiveStreams}
         </span>
+        <SleepGuardToggle csrfToken={csrfToken} />
         {status === "reconnecting" && (
           <button type="button" className="statusbar-btn" onClick={onRetry}>
             再接続

@@ -12,7 +12,16 @@ export interface WindowsListMessage {
   windows: WindowInfo[];
 }
 
-// WS /ws/terminal: クライアント→サーバー
+// client/server共通の単一の定義元
+export const TERMINAL_COUNT = 6;
+export const TERMINAL_IDS: string[] = Array.from({ length: TERMINAL_COUNT }, (_, i) =>
+  String(i + 1),
+);
+export function isValidTerminalId(id: string): boolean {
+  return TERMINAL_IDS.includes(id);
+}
+
+// WS /ws/terminal/:id: クライアント→サーバー
 export interface TerminalInputMessage {
   type: "input";
   data: string;
@@ -24,11 +33,12 @@ export interface TerminalResizeMessage {
 }
 export type TerminalClientMessage = TerminalInputMessage | TerminalResizeMessage;
 
-// WS /ws/terminal: サーバーがclose()に渡すcode。理由付き終了はこの経路のみ(それ以外は生の切断)
+// WS /ws/terminal/:id: サーバーがclose()に渡すcode、理由を伝えたい切断だけここに乗せる
 export const TERMINAL_CLOSE_CODES = {
   superseded: 4000,
   spawn_failed: 4001,
   server_shutdown: 4002,
+  invalid_id: 4010,
 } as const;
 export type TerminalCloseReason = keyof typeof TERMINAL_CLOSE_CODES;
 

@@ -21,9 +21,14 @@ function toShellCommand(text: string): string {
   return `${body}\r`;
 }
 
-function TerminalPanel() {
-  const { containerRef, termRef, fit } = useXtermTerminal();
-  const { status, sendInput, retryNow } = useTerminalWs(termRef, fit);
+interface TerminalPanelProps {
+  id: string;
+  fontSize: number;
+}
+
+function TerminalPanel({ id, fontSize }: TerminalPanelProps) {
+  const { containerRef, termRef, fit } = useXtermTerminal(fontSize);
+  const { status, sendInput, retryNow } = useTerminalWs(id, termRef, fit);
 
   const ctrlArmedRef = useRef(false);
   const [ctrlArmed, setCtrlArmed] = useState(false);
@@ -119,7 +124,9 @@ function TerminalPanel() {
         onPressCtrl={pressCtrl}
         onPressKey={sendInput}
       />
-      {showReview && <TerminalReviewSheet onClose={() => setShowReview(false)} />}
+      {showReview && (
+        <TerminalReviewSheet id={id} onClose={() => setShowReview(false)} />
+      )}
     </div>
   );
 }

@@ -14,10 +14,12 @@ export interface XtermTerminal {
 
 // xterm.jsインスタンスの生成・fit・タッチスクロール・IME変換中のリサイズ保留を担当する。
 // WebSocket配線はuseTerminalWs側の責務であり、ここはterm自体のライフサイクルのみを見る。
-export function useXtermTerminal(): XtermTerminal {
+export function useXtermTerminal(fontSize: number): XtermTerminal {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  // 初期値だけrefで固定し、以後の変更は下の別effectで反映する
+  const initialFontSizeRef = useRef(fontSize);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -25,7 +27,7 @@ export function useXtermTerminal(): XtermTerminal {
 
     const term = new Terminal({
       fontFamily: 'Menlo, Consolas, "Courier New", monospace',
-      fontSize: 16,
+      fontSize: initialFontSizeRef.current,
       cursorBlink: true,
       scrollback: 5000,
     });
@@ -82,6 +84,14 @@ export function useXtermTerminal(): XtermTerminal {
       fitAddonRef.current = null;
     };
   }, []);
+
+  // fontSize変更のたびにTerminalを作り直さず、options書き換え+fit()で反映する
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || term.options.fontSize === fontSize) return;
+    term.options.fontSize = fontSize;
+    fitAddonRef.current?.fit();
+  }, [fontSize]);
 
   return {
     containerRef,

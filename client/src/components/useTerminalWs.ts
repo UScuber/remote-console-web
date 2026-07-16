@@ -15,10 +15,11 @@ export interface TerminalWs {
   retryNow: () => void;
 }
 
-// /ws/terminalの接続・再接続・状態管理、およびterm<->WS間のresize/出力の配線を担う。
+// /ws/terminal/:idの接続・再接続・状態管理、およびterm<->WS間のresize/出力の配線を担う。
 // term.onData(入力)だけはCtrl修飾トグルというUI固有の変換を挟むため、こちらではなく
 // コンポーネント側(TerminalPanel)が配線する。
 export function useTerminalWs(
+  id: string,
   termRef: RefObject<Terminal | null>,
   fit: () => void,
 ): TerminalWs {
@@ -42,7 +43,7 @@ export function useTerminalWs(
 
     // 再接続してもTerminalインスタンス自体は作り直さないためスクロールバックが保持される
     const wsHandle = subscribeSharedWs({
-      url: wsUrl("/ws/terminal"),
+      url: wsUrl(`/ws/terminal/${id}`),
       onConnecting: () => setStatus("connecting"),
       onOpen: (ws) => {
         setStatus("connected");
@@ -76,7 +77,7 @@ export function useTerminalWs(
       wsHandle.stop();
       wsHandleRef.current = null;
     };
-    // termRef.currentはuseXtermTerminal側のマウント時に1度だけ生成されるため[]で正しい
+    // termRef.currentもidもマウント時から不変のため[]で正しい
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

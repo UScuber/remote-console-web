@@ -2,12 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnsiUp } from "ansi_up";
 
 interface TerminalReviewSheetProps {
+  id: string;
   onClose: () => void;
 }
 
 type LoadState = "loading" | "ready" | "error";
-
-const HISTORY_ENDPOINT = "/api/terminal/history";
 
 // use_classesで標準16色をクラス出力させApp.css側でxterm既定パレットに合わせる
 // ansi_upは既定でHTMLエスケープするため変換結果をそのままDOMへ差し込んでも安全
@@ -17,14 +16,14 @@ function ansiToColoredHtml(text: string): string {
   return ansiUp.ansi_to_html(text);
 }
 
-async function fetchTerminalHistory(): Promise<string> {
-  const res = await fetch(HISTORY_ENDPOINT, { credentials: "same-origin" });
+async function fetchTerminalHistory(id: string): Promise<string> {
+  const res = await fetch(`/api/terminal/history/${id}`, { credentials: "same-origin" });
   if (!res.ok) throw new Error(`history request failed: ${res.status}`);
   return res.text();
 }
 
 // canvas描画のxtermでは効かないモバイルの選択・コピーをDOMテキストの別サーフェスで解決する
-function TerminalReviewSheet({ onClose }: TerminalReviewSheetProps) {
+function TerminalReviewSheet({ id, onClose }: TerminalReviewSheetProps) {
   const [state, setState] = useState<LoadState>("loading");
   const [html, setHtml] = useState("");
   const preRef = useRef<HTMLPreElement | null>(null);
@@ -32,12 +31,12 @@ function TerminalReviewSheet({ onClose }: TerminalReviewSheetProps) {
   const load = useCallback(async () => {
     setState("loading");
     try {
-      setHtml(ansiToColoredHtml(await fetchTerminalHistory()));
+      setHtml(ansiToColoredHtml(await fetchTerminalHistory(id)));
       setState("ready");
     } catch {
       setState("error");
     }
-  }, []);
+  }, [id]);
 
   useEffect(() => {
     void load();

@@ -57,7 +57,7 @@ app.get("/api/session", (req, res) => {
 });
 
 // 参照のみのGETなのでCSRF保護は不要
-app.get("/api/terminal/history", requireAuth, terminalHistoryHandler);
+app.get("/api/terminal/history/:id", requireAuth, terminalHistoryHandler);
 
 // 参照のみのGETなのでCSRF保護は不要
 app.get("/api/display/sleep-guard", requireAuth, (_req, res) => {
@@ -162,7 +162,7 @@ enableHeartbeat(windowStreamWss);
 startWindowDetector();
 
 function resolveWss(pathname: string): WebSocketServer | undefined {
-  if (pathname === "/ws/terminal") return terminalWss;
+  if (pathname.startsWith("/ws/terminal/")) return terminalWss;
   if (pathname === "/ws/windows") return windowsWss;
   if (pathname.startsWith("/ws/window/")) return windowStreamWss;
   return undefined;

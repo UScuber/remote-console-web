@@ -21,10 +21,10 @@ npm run build
 ## 現在実装済みのエンドポイント
 
 - `GET /api/session`: 認証状態・CSRFトークン・`MAX_ACTIVE_STREAMS`を返す。クライアントはこれで描画を分岐する
-- `GET /api/terminal/history`: tmuxのスクロールバックを返す(「テキスト表示」用、参照のみなのでCSRF保護は無し)
+- `GET /api/terminal/history/:id`: 指定枠(`"1"`〜`"6"`)のtmuxスクロールバックを返す(「テキスト表示」用、参照のみなのでCSRF保護は無し)
 - `POST /api/login`: `{ "password": "..." }` をbcrypt比較。成功でセッションCookie発行。5回連続失敗で60秒ロック
 - `POST /api/logout`: セッション失効
-- `WS /ws/terminal`: tmux経由のターミナル入出力。有効な接続は1つのみで、新規接続は既存接続を`close(4000, "superseded")`で置き換える
+- `WS /ws/terminal/:id`: tmux経由のターミナル入出力。固定6枠(`shared/protocol.ts`の`TERMINAL_COUNT`)、枠ごとに独立したtmuxセッションを持つ。同一枠への有効な接続は1つのみで、新規接続は既存接続を`close(4000, "superseded")`で置き換える(別の枠には影響しない)
 - `WS /ws/windows`: 起動中ウィンドウ一覧(id・タイトル)の配信
 - `WS /ws/window/:id`: 指定windowIdの映像(MJPEG)配信。同一idへの接続は後勝ち
 
@@ -41,7 +41,7 @@ npm run build
 
 ### ターミナル(`terminal/ptyManager.ts`)
 
-- `tmux new-session -A -s $TMUX_SESSION_NAME`をnode-pty経由で起動する。有効な接続は常に1つのみで、新規接続は既存接続を`close(4000, "superseded")`で置き換える。tmuxセッション自体は共有なので置き換えても作業画面は失われない。
+- 固定6枠(id `"1"`〜`"6"`、`shared/protocol.ts`の`TERMINAL_COUNT`)。枠ごとに`tmux new-session -A -s ${TMUX_SESSION_NAME}-<id>`をnode-pty経由で起動し、`activeConnections`は枠idをキーにしたMapで管理する。同一枠内の有効な接続は常に1つのみで、新規接続は同じ枠の既存接続を`close(4000, "superseded")`で置き換える(枠ごとのtmuxセッションは共有なので置き換えても作業画面は失われない。別の枠には影響しない)。
 
 ### ウィンドウ一覧(`stream/windowDetector.ts`)
 
@@ -58,11 +58,11 @@ npm run build
 
 ### プロトコル定義(`../shared/protocol.ts`)
 
-- `WindowInfo`型、`/ws/windows`・`/ws/terminal`・`/ws/window/:id`のメッセージ形、close code表など、client/server間で一致していなければならない型・定数をここに集約している。serverは`npm run build`時にビルドされる`shared/dist/`を、clientは`shared/*.ts`のソースを直接参照する(詳細はリポジトリ直下のREADME参照)。
+- `WindowInfo`型、`/ws/windows`・`/ws/terminal/:id`・`/ws/window/:id`のメッセージ形、close code表、ターミナル枠数(`TERMINAL_COUNT`/`TERMINAL_IDS`/`isValidTerminalId`)など、client/server間で一致していなければならない型・定数をここに集約している。serverは`npm run build`時にビルドされる`shared/dist/`を、clientは`shared/*.ts`のソースを直接参照する(詳細はリポジトリ直下のREADME参照)。
 
 ### 死活監視(`wsHeartbeat.ts`)
 
-- `/ws/terminal`・`/ws/windows`・`/ws/window/:id`共通で30秒間隔のpingを送り、pongが2回連続で返らない接続は`terminate()`で切断する。`terminate()`でも`close`イベントは発火するため、各ハンドラ側のリソース解放(ptyのkill・ffmpegのkill等)はそのまま流用される。
+- `/ws/terminal/:id`・`/ws/windows`・`/ws/window/:id`共通で30秒間隔のpingを送り、pongが2回連続で返らない接続は`terminate()`で切断する。`terminate()`でも`close`イベントは発火するため、各ハンドラ側のリソース解放(ptyのkill・ffmpegのkill等)はそのまま流用される。
 
 ### 終了処理(`index.ts`)
 

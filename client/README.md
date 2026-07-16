@@ -48,12 +48,18 @@ React 18のStrictMode(開発時のみ)は各エフェクトを同一tick内で�
 
 ## その他の実装メモ
 
+### 固定6枠のターミナル切替(`App.tsx` / `useTerminalPrefs.ts`)
+
+ターミナルは`shared/protocol.ts`の`TERMINAL_COUNT`(6)分の`TerminalPanel`を常時マウントし、非表示枠は`display: none`で隠すだけ(タブ切替と同じ方式)。裏側の`/ws/terminal/:id`接続も維持されたままなので、切替時に再接続待ちは発生しない。各`TerminalPanel`はxterm・WebSocketとも独立したインスタンスを持つため、枠ごとに別々のタブ表示状態(「テキスト表示」等)を保てる。
+
+`useTerminalPrefs.ts`が「最後に開いていた枠のid」と「全枠共通のフォントサイズ」を`localStorage`に永続化する。フォントサイズは`App.tsx`が単一の状態として持ち`fontSize` propで各`TerminalPanel`(→`useXtermTerminal.ts`)に配る。`useXtermTerminal.ts`側は初回生成時の値のみ`useRef`で固定し、以後の変更は`term.options.fontSize`の書き換え+`fitAddon.fit()`(cols/rows再計算→`term.onResize`経由でサーバーへのptyリサイズも自動的に飛ぶ)で反映する。
+
 ### `components/TerminalPanel.tsx` とその関連hook
 
 xterm自体のライフサイクル(`useXtermTerminal.ts`)とWebSocket配線(`useTerminalWs.ts`)をhookとして分離し、`TerminalPanel.tsx`はその2つとCtrl修飾トグル・入力欄・特殊キーバー(`TerminalKeyBar.tsx`)といったUI固有の状態だけを持つ。
 
 - `useXtermTerminal.ts`: xterm.jsインスタンス・`FitAddon`・`WebLinksAddon`の生成、タッチスクロール配線、IME変換中のリサイズ保留を担当する。`fitAddon.fit()`はterm.resize()を経由して再描画するため、iOS SafariのIME変換中に呼ぶと確定前の文字が消えることがある。ソフトウェアキーボードの出現自体もリサイズを起こすため、変換中はリサイズを保留しcompositionend後に適用している。
-- `useTerminalWs.ts`: `/ws/terminal`への接続・再接続・状態管理、および`term.onResize`→`resize`メッセージ送信、受信データの`term.write()`を配線する。`term.onData`(入力)だけはCtrl修飾トグルというUI固有の変換を挟むため、こちらではなく`TerminalPanel.tsx`側で配線する。
+- `useTerminalWs.ts`: `/ws/terminal/:id`(idは`TerminalPanel`のprops)への接続・再接続・状態管理、および`term.onResize`→`resize`メッセージ送信、受信データの`term.write()`を配線する。`term.onData`(入力)だけはCtrl修飾トグルというUI固有の変換を挟むため、こちらではなく`TerminalPanel.tsx`側で配線する。
 - 公式のws直結アドオン(`@xterm/addon-attach`)は使わず、input/resizeを1本のWebSocketにJSONフレームで多重化する自前配線にしている。addon-attachは生バイト列の送受信のみでresizeを運べないため。
 - マウス/タッチ座標のレポートは、pty側(tmux)がマウストラッキングを要求した時点でxterm.jsが自動的に開始する(`server/tmux.conf`の`set -g mouse on`と対になる設定で、JS側で別途有効化する設定は不要)。
 

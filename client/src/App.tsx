@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { TERMINAL_IDS } from "remote-console-shared";
 import LoginForm from "./components/LoginForm";
 import TerminalPanel from "./components/TerminalPanel";
 import WindowPicker from "./components/WindowPicker";
 import WindowStream from "./components/WindowStream";
 import { onAuthLost } from "./authWatchdog";
 import { useWindowList } from "./useWindowList";
+import { useTerminalPrefs, MIN_FONT_SIZE, MAX_FONT_SIZE } from "./useTerminalPrefs";
 import "./App.css";
 
 type AuthState = "loading" | "anonymous" | "authenticated";
@@ -28,6 +30,13 @@ function App() {
   );
 
   const [tab, setTab] = useState<Tab>("terminal");
+  const {
+    activeTerminalId,
+    setActiveTerminalId,
+    fontSize,
+    increaseFontSize,
+    decreaseFontSize,
+  } = useTerminalPrefs();
   const {
     windows,
     status: windowListStatus,
@@ -153,7 +162,48 @@ function App() {
         className="tab-content"
         style={{ display: tab === "terminal" ? "flex" : "none" }}
       >
-        <TerminalPanel />
+        <div className="terminal-slot-bar">
+          {TERMINAL_IDS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              className={`terminal-slot-btn${activeTerminalId === id ? " terminal-slot-btn-active" : ""}`}
+              onClick={() => setActiveTerminalId(id)}
+            >
+              {id}
+            </button>
+          ))}
+          <div className="terminal-fontsize-controls">
+            <button
+              type="button"
+              className="terminal-fontsize-btn"
+              onClick={decreaseFontSize}
+              disabled={fontSize <= MIN_FONT_SIZE}
+            >
+              −
+            </button>
+            <span className="terminal-fontsize-label">{fontSize}</span>
+            <button
+              type="button"
+              className="terminal-fontsize-btn"
+              onClick={increaseFontSize}
+              disabled={fontSize >= MAX_FONT_SIZE}
+            >
+              +
+            </button>
+          </div>
+        </div>
+        <div className="terminal-slot-list">
+          {TERMINAL_IDS.map((id) => (
+            <div
+              key={id}
+              className="terminal-slot-item"
+              style={{ display: activeTerminalId === id ? "flex" : "none" }}
+            >
+              <TerminalPanel id={id} fontSize={fontSize} />
+            </div>
+          ))}
+        </div>
       </div>
       <div
         className="tab-content"

@@ -1,10 +1,12 @@
 import * as pty from "node-pty";
 import path from "node:path";
+import type { IncomingMessage } from "node:http";
 import type { WebSocket, WebSocketServer } from "ws";
 import { suppressSocketErrors } from "../wsSafety";
 import { TMUX_SESSION_NAME, PROJECT_DIR } from "../config";
 import {
   TERMINAL_CLOSE_CODES,
+  isValidTerminalId,
   type TerminalClientMessage,
 } from "remote-console-shared";
 
@@ -13,7 +15,11 @@ const TMUX_CONF_PATH = path.resolve(__dirname, "../../tmux.conf");
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 
-function spawnTerminal(): pty.IPty {
+function tmuxSessionName(id: string): string {
+  return `${TMUX_SESSION_NAME}-${id}`;
+}
+
+function spawnTerminal(id: string): pty.IPty {
   return pty.spawn(
     "tmux",
     [
@@ -22,7 +28,7 @@ function spawnTerminal(): pty.IPty {
       "new-session",
       "-A",
       "-s",
-      TMUX_SESSION_NAME,
+      tmuxSessionName(id),
       "-c",
       PROJECT_DIR,
     ],
@@ -36,28 +42,37 @@ function spawnTerminal(): pty.IPty {
   );
 }
 
-// tmuxセッションは共有のため、後勝ちで置き換えても新接続は同じ作業画面に復帰する
-let activeConnection: { ws: WebSocket; ptyProcess: pty.IPty } | null = null;
+// idごとに独立したセッションのため、後勝ち判定もid単位のMapで管理する
+const activeConnections = new Map<string, { ws: WebSocket; ptyProcess: pty.IPty }>();
 
 export function registerTerminalWebSocket(wss: WebSocketServer): void {
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
     suppressSocketErrors(ws);
 
-    if (activeConnection) {
-      console.log("[ptyManager] new connection supersedes existing one");
-      activeConnection.ws.close(TERMINAL_CLOSE_CODES.superseded, "superseded");
+    const { pathname } = new URL(req.url ?? "", "http://localhost");
+    const match = pathname.match(/^\/ws\/terminal\/(.+)$/);
+    const id = match?.[1];
+    if (!id || !isValidTerminalId(id)) {
+      ws.close(TERMINAL_CLOSE_CODES.invalid_id, "invalid_id");
+      return;
+    }
+
+    const existing = activeConnections.get(id);
+    if (existing) {
+      console.log(`[ptyManager] terminal ${id}: new connection supersedes existing one`);
+      existing.ws.close(TERMINAL_CLOSE_CODES.superseded, "superseded");
     }
 
     let ptyProcess: pty.IPty;
     try {
-      ptyProcess = spawnTerminal();
+      ptyProcess = spawnTerminal(id);
     } catch (err) {
-      console.error("[ptyManager] failed to spawn tmux:", err);
+      console.error(`[ptyManager] terminal ${id}: failed to spawn tmux:`, err);
       ws.close(TERMINAL_CLOSE_CODES.spawn_failed, "spawn_failed");
       return;
     }
-    activeConnection = { ws, ptyProcess };
-    console.log(`[ptyManager] terminal connected (pid=${ptyProcess.pid})`);
+    activeConnections.set(id, { ws, ptyProcess });
+    console.log(`[ptyManager] terminal ${id}: connected (pid=${ptyProcess.pid})`);
 
     let exited = false;
 
@@ -70,7 +85,7 @@ export function registerTerminalWebSocket(wss: WebSocketServer): void {
     ptyProcess.onExit(({ exitCode, signal }) => {
       exited = true;
       console.log(
-        `[ptyManager] tmux client exited (pid=${ptyProcess.pid}, code=${exitCode}, signal=${signal})`,
+        `[ptyManager] terminal ${id}: tmux client exited (pid=${ptyProcess.pid}, code=${exitCode}, signal=${signal})`,
       );
       ws.close();
     });
@@ -107,7 +122,7 @@ export function registerTerminalWebSocket(wss: WebSocketServer): void {
     });
 
     ws.on("close", () => {
-      console.log(`[ptyManager] terminal disconnected (pid=${ptyProcess.pid})`);
+      console.log(`[ptyManager] terminal ${id}: disconnected (pid=${ptyProcess.pid})`);
       if (!exited) {
         try {
           ptyProcess.kill();
@@ -115,8 +130,8 @@ export function registerTerminalWebSocket(wss: WebSocketServer): void {
           // 既に終了済みのプロセスへのkillはESRCH等で例外になりうるため無視する
         }
       }
-      if (activeConnection?.ws === ws) {
-        activeConnection = null;
+      if (activeConnections.get(id)?.ws === ws) {
+        activeConnections.delete(id);
       }
     });
   });
@@ -124,13 +139,14 @@ export function registerTerminalWebSocket(wss: WebSocketServer): void {
 
 // SIGTERM等でのgraceful shutdown用。tmuxサーバー自体・その中のシェルは影響を受けず残る
 export function shutdownTerminal(): void {
-  if (!activeConnection) return;
-  console.log(`[ptyManager] shutting down (pid=${activeConnection.ptyProcess.pid})`);
-  try {
-    activeConnection.ptyProcess.kill();
-  } catch {
-    // 既に終了済みのプロセスへのkillはESRCH等で例外になりうるため無視する
+  for (const [id, conn] of activeConnections) {
+    console.log(`[ptyManager] terminal ${id}: shutting down (pid=${conn.ptyProcess.pid})`);
+    try {
+      conn.ptyProcess.kill();
+    } catch {
+      // 既に終了済みのプロセスへのkillはESRCH等で例外になりうるため無視する
+    }
+    conn.ws.close(TERMINAL_CLOSE_CODES.server_shutdown, "server_shutdown");
   }
-  activeConnection.ws.close(TERMINAL_CLOSE_CODES.server_shutdown, "server_shutdown");
-  activeConnection = null;
+  activeConnections.clear();
 }

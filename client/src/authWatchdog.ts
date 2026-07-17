@@ -1,6 +1,8 @@
 // WebSocketはハンドシェイク失敗のHTTPステータスを見られず401とただの回線断を区別できないため
 // 再接続が繰り返し失敗した時点で能動的に/api/sessionを確認しセッション失効かどうかを判定する
 
+import { apiFetch } from "./apiFetch";
+
 const FAILURE_THRESHOLD = 3;
 
 type Listener = (csrfToken: string) => void;
@@ -18,7 +20,7 @@ export function onAuthLost(fn: Listener): () => void {
 export function reportUnstableClose(consecutiveFailures: number): void {
   if (consecutiveFailures < FAILURE_THRESHOLD || checking) return;
   checking = true;
-  fetch("/api/session", { credentials: "same-origin" })
+  apiFetch("api/session")
     .then((res) => res.json())
     .then((data: { authenticated?: boolean; csrfToken?: string }) => {
       if (!data.authenticated) {

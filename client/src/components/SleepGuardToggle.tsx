@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { apiFetch } from "../apiFetch";
 
 interface Props {
   csrfToken: string;
@@ -16,7 +17,7 @@ function SleepGuardToggle({ csrfToken }: Props) {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    fetch("/api/display/sleep-guard", { credentials: "same-origin" })
+    apiFetch("api/display/sleep-guard")
       .then((res) => res.json())
       .then((data: SleepGuardResponse) => setEnabled(Boolean(data.enabled)))
       .catch(() => setError(true));
@@ -28,10 +29,9 @@ function SleepGuardToggle({ csrfToken }: Props) {
     setPending(true);
     setError(false);
     try {
-      const res = await fetch("/api/display/sleep-guard", {
+      const res = await apiFetch("api/display/sleep-guard", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-        credentials: "same-origin",
         body: JSON.stringify({ enabled: next }),
       });
       if (!res.ok) throw new Error("request failed");

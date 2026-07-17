@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnsiUp } from "ansi_up";
+import { apiFetch } from "../apiFetch";
 
 interface TerminalReviewSheetProps {
   id: string;
@@ -17,7 +18,7 @@ function ansiToColoredHtml(text: string): string {
 }
 
 async function fetchTerminalHistory(id: string): Promise<string> {
-  const res = await fetch(`/api/terminal/history/${id}`, { credentials: "same-origin" });
+  const res = await apiFetch(`api/terminal/history/${id}`);
   if (!res.ok) throw new Error(`history request failed: ${res.status}`);
   return res.text();
 }

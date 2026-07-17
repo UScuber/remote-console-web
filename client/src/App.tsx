@@ -5,6 +5,7 @@ import TerminalPanel from "./components/TerminalPanel";
 import WindowPicker from "./components/WindowPicker";
 import WindowStream from "./components/WindowStream";
 import { onAuthLost } from "./authWatchdog";
+import { apiFetch } from "./apiFetch";
 import { useWindowList } from "./useWindowList";
 import { useTerminalPrefs, MIN_FONT_SIZE, MAX_FONT_SIZE } from "./useTerminalPrefs";
 import "./App.css";
@@ -52,7 +53,7 @@ function App() {
   useEffect(() => {
     async function loadSession() {
       try {
-        const res = await fetch("/api/session", { credentials: "same-origin" });
+        const res = await apiFetch("api/session");
         const data: {
           authenticated: boolean;
           csrfToken: string;

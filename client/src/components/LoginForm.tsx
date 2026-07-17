@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { apiFetch } from "../apiFetch";
 
 interface Props {
   csrfToken: string;
@@ -17,7 +18,7 @@ interface LoginResponse {
 
 async function fetchFreshCsrfToken(): Promise<string | null> {
   try {
-    const res = await fetch("/api/session", { credentials: "same-origin" });
+    const res = await apiFetch("api/session");
     const data: { csrfToken?: string } = await res.json();
     return data.csrfToken ?? null;
   } catch {
@@ -35,10 +36,9 @@ function LoginForm({ csrfToken, onLoginSuccess, onCsrfRefresh }: Props) {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch("/api/login", {
+      const res = await apiFetch("api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-        credentials: "same-origin",
         body: JSON.stringify({ password }),
       });
       const data: LoginResponse = await res.json();

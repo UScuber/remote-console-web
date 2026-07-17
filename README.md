@@ -43,3 +43,40 @@ cd client && npm run dev
 ```
 
 `shared/protocol.ts`を編集した場合、`client`はソースを直接参照するため即座に反映されるが、`server`はビルド済みの`shared/dist/`を参照するため、`server`の`dev`/`build`を再実行(または`cd shared && npm run build`)して初めて変更が反映される。
+
+## デプロイ(systemd + Tailscale Serve)
+
+本番運用時は、常時起動機(自動ログイン済みのUbuntu Desktop)上で以下の3つを組み合わせる。
+
+1. `server`・`client`をそれぞれビルドしておく(`npm run build`、上記参照)。サーバーは`client/dist`を静的配信する。
+2. systemdサービスとして`server`を自動起動・自動再起動する(`deploy/remote-console-web.service`)。
+3. Tailscale Serveでこのアプリ(ローカル`127.0.0.1:8444`、systemdユニット側で開発用の8443と衝突しないよう上書き)を`/remote-console`パス配下でTailnet内にHTTPS公開する(同一マシンから将来他のアプリも配信する場合にパスが衝突しないようにするため。`deploy/tailscale-serve-setup.md`)。
+
+### systemdサービスの導入
+
+`deploy/remote-console-web.service`はUser・DISPLAY・Xauthority・リポジトリパス・nodeの実パスをこの開発機の実測値で埋めてある。**別の機体に導入する場合は下記を実機で確認し、ユニットファイルを書き換えてから導入すること。**
+
+- `echo $DISPLAY`(自動ログインしたグラフィカルセッション内で実行。`:0`以外の場合がある)
+- `which node`(nvm等でNodeを管理している場合、`/usr/bin/node`ではない実パスになっていることが多い)
+- リポジトリの実際のclone先パス
+
+```bash
+sudo cp deploy/remote-console-web.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now remote-console-web.service
+```
+
+状態確認・ログ:
+
+```bash
+systemctl status remote-console-web.service
+journalctl -u remote-console-web.service -f
+```
+
+このサービスは`EnvironmentFile`でリポジトリ直下の`.env`を読み込む。`.env`を書き換えた場合は`sudo systemctl restart remote-console-web.service`が必要。
+
+サービスは`graphical.target`(自動ログインのグラフィカルセッション)到達後に起動を試みるが、X11セッションの起動タイミングによっては初回起動時にDISPLAYへ接続できず失敗することがある。`Restart=always`・`RestartSec=3`により自動的に再試行されるため、通常は数秒後に正常起動する。
+
+### Tailscale Serve
+
+手順・ACLでのアクセス制限方法は`deploy/tailscale-serve-setup.md`を参照。

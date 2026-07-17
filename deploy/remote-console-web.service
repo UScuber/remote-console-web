@@ -1,0 +1,35 @@
+# インストール手順:
+#   sudo cp deploy/remote-console-web.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now remote-console-web.service
+#
+# 注記: ExecStart/WorkingDirectory/Environment= の値は開発機(sota, /home/sota/Documents/remote-console-web)
+# の実測値。別環境に導入する場合は下記を実機で確認して書き換えること。
+#   - DISPLAY:        `echo $DISPLAY` (自動ログインしたグラフィカルセッション内で実行)
+#   - node の実パス:  `which node`(nvm等でインストールしている場合 /usr/bin/node ではないことが多い)
+#   - リポジトリパス: 実際にcloneした場所
+
+[Unit]
+Description=Simulation Remote Console Web (terminal + window stream)
+# X11(自動ログインのグラフィカルセッション)とTailscaleが上がってから起動する
+After=graphical.target tailscaled.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sota
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/sota/.Xauthority
+Environment=NODE_ENV=production
+EnvironmentFile=/home/sota/Documents/remote-console-web/.env
+# .envのPORT(8443)は開発用(npm run dev)がそのまま使い続けるため、systemd側だけ別ポートに上書きする。
+# 注意: EnvironmentFile=はEnvironment=より常に優先されるため、Environment=PORT=... では上書きできない。
+# 複数のEnvironmentFile=は「後に指定したファイルが勝つ」ため、2つ目のファイルとして指定する。
+EnvironmentFile=/home/sota/Documents/remote-console-web/deploy/production.env
+WorkingDirectory=/home/sota/Documents/remote-console-web/server
+ExecStart=/home/sota/.nvm/versions/node/v24.18.0/bin/node dist/index.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target

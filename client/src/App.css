@@ -236,8 +236,8 @@
 .key-bar {
   flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex-wrap: nowrap;
+  gap: 3px;
   padding: 6px;
   background: var(--panel-bg);
   border-top: 1px solid var(--border);
@@ -245,15 +245,17 @@
 
 .key-btn {
   flex: 1 1 0;
-  min-width: 36px;
+  min-width: 0;
   min-height: 44px;
-  padding: 0 2px;
+  padding: 0 1px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #333;
   color: var(--fg);
   font-size: 12px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
   cursor: pointer;
   touch-action: manipulation;
 }

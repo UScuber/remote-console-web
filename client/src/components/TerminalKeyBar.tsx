@@ -1,12 +1,14 @@
 const SPECIAL_KEYS: { label: string; seq: string }[] = [
   { label: "Esc", seq: "\x1b" },
   { label: "Tab", seq: "\t" },
+  { label: "⇧Tab", seq: "\x1b[Z" },
+  { label: "⏎", seq: "\r" },
   // normal cursor mode固定、アプリがDECCKMを有効化していても追随しない既知の制限
   { label: "↑", seq: "\x1b[A" },
   { label: "↓", seq: "\x1b[B" },
   { label: "←", seq: "\x1b[D" },
   { label: "→", seq: "\x1b[C" },
-  { label: "Ctrl+C", seq: "\x03" },
+  { label: "^C", seq: "\x03" },
 ];
 
 interface TerminalKeyBarProps {

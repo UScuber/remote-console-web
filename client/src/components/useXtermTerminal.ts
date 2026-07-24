@@ -40,6 +40,10 @@ export function useXtermTerminal(fontSize: number): XtermTerminal {
     termRef.current = term;
     fitAddonRef.current = fitAddon;
 
+    // xterm.js既定のoffだと予測変換も無効化されるため上書き
+    term.textarea?.setAttribute("autocorrect", "on");
+    term.textarea?.setAttribute("spellcheck", "true");
+
     const disposeTouchScroll = enableTerminalTouchScroll(term, container);
 
     // fit()はterm.resize()経由で再描画するため、iOS Safariの変換中に呼ぶと確定前の文字が

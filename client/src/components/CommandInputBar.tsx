@@ -49,8 +49,8 @@ function CommandInputBar({ onSubmit }: CommandInputBarProps) {
         onKeyDown={handleKeyDown}
         autoComplete="off"
         autoCapitalize="off"
-        autoCorrect="off"
-        spellCheck={false}
+        autoCorrect="on"
+        spellCheck={true}
       />
       <button
         type="button"

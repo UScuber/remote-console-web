@@ -1,10 +1,16 @@
-import { spawn, type ChildProcessByStdio } from "node:child_process";
+// ウィンドウ映像配信のWebSocketハンドラ。フレームの取得方法はOS別にframeSource.tsへ分離しており、
+// ここでは接続管理・帯域制御(バックプレッシャー/非アクティブ間引き)・異常検知だけを扱う。
+
 import type { IncomingMessage } from "node:http";
-import type { Readable } from "node:stream";
 import type { WebSocket, WebSocketServer } from "ws";
 import { getCurrentWindows, onWindowsChange } from "./windowDetector";
+import {
+  createFrameSource,
+  type FrameSource,
+  type FrameSourceEndEvent,
+} from "./frameSource";
 import { suppressSocketErrors } from "../wsSafety";
-import { MAX_ACTIVE_STREAMS as MAX_ACTIVE_STREAMS_CONFIG, DISPLAY } from "../config";
+import { MAX_ACTIVE_STREAMS as MAX_ACTIVE_STREAMS_CONFIG } from "../config";
 import {
   WINDOW_STREAM_CLOSE_CODES as CLOSE_CODES,
   type WindowStreamEndReason as EndReason,
@@ -12,15 +18,10 @@ import {
   type WindowStreamEndedMessage,
 } from "remote-console-shared";
 
-type FfmpegProcess = ChildProcessByStdio<null, Readable, Readable>;
-
-const SCALE_WIDTH = 960;
-const FRAME_RATE = 15;
-
 // これを超えるフレームは古い順ではなく丸ごと破棄し、常に最新映像を優先する
 const BACKPRESSURE_THRESHOLD_BYTES = 1 * 1024 * 1024;
 
-// 最小化・画面外配置時のx11grab挙動が機種依存で不定なため、一律タイムアウトで異常を検知する
+// 最小化・画面外配置時のキャプチャ挙動が機種依存で不定なため、一律タイムアウトで異常を検知する
 const FIRST_FRAME_TIMEOUT_MS = 5000;
 
 // 非アクティブなストリームはここで送信自体を間引く(クライアント側の受信後破棄では帯域が減らない)
@@ -29,14 +30,11 @@ const STATIC_STREAM_INTERVAL_MS = 3000;
 // クライアント側の二重防御(WindowPicker)でも同じ値を使うため export する
 export const MAX_ACTIVE_STREAMS = MAX_ACTIVE_STREAMS_CONFIG;
 
-const JPEG_SOI = Buffer.from([0xff, 0xd8]);
-const JPEG_EOI = Buffer.from([0xff, 0xd9]);
-
 // reasonの型・close codeの対応はshared/protocol.tsのWindowStreamEndReason/WINDOW_STREAM_CLOSE_CODES。
 // client側のWindowStream.tsxのEND_REASON_LABELはこの型を使い網羅性をコンパイラに保証させている。
 
 interface StreamEntry {
-  ffmpeg: FfmpegProcess;
+  source: FrameSource;
   ws: WebSocket;
   unsubscribeWindowChange: () => void;
   firstFrameTimer: ReturnType<typeof setTimeout>;
@@ -44,7 +42,7 @@ interface StreamEntry {
   lastSentAt: number;
 }
 
-// windowIdごとに最大1つのffmpegプロセス、同一idへの接続は後勝ち
+// windowIdごとに最大1つのフレームソース、同一idへの接続は後勝ち
 const activeStreams = new Map<string, StreamEntry>();
 
 function endConnection(ws: WebSocket, reason: EndReason): void {
@@ -64,11 +62,7 @@ function closeStream(windowId: string, reason: EndReason): void {
   console.log(`[ffmpegStream] window ${windowId}: stream ended (reason=${reason})`);
   clearTimeout(entry.firstFrameTimer);
   entry.unsubscribeWindowChange();
-  try {
-    entry.ffmpeg.kill();
-  } catch {
-    // 既に終了済みのプロセスへのkillはESRCH等で例外になりうるため無視する
-  }
+  entry.source.stop();
   endConnection(entry.ws, reason);
 }
 
@@ -77,60 +71,6 @@ export function shutdownStreams(): void {
   for (const windowId of [...activeStreams.keys()]) {
     closeStream(windowId, "server_shutdown");
   }
-}
-
-function spawnFfmpeg(windowId: string): FfmpegProcess {
-  return spawn(
-    "ffmpeg",
-    [
-      "-f",
-      "x11grab",
-      "-window_id",
-      windowId,
-      "-i",
-      DISPLAY,
-      "-vf",
-      `scale=${SCALE_WIDTH}:-1`,
-      "-r",
-      String(FRAME_RATE),
-      "-f",
-      "mjpeg",
-      "-q:v",
-      "5",
-      "pipe:1",
-    ],
-    { stdio: ["ignore", "pipe", "pipe"] },
-  );
-}
-
-// ffmpegのstdoutは連続バイト列でフレーム境界の通知が無いため、SOI(0xFFD8)〜EOI(0xFFD9)の
-// マーカーで1フレームずつ切り出す。チャンク境界でマーカーが割れるケースがあるため、
-// 未確定分はrestとして呼び出し側に返し次のチャンクと結合させる。
-export function extractJpegFrames(buffer: Buffer): {
-  frames: Buffer[];
-  rest: Buffer;
-} {
-  const frames: Buffer[] = [];
-  let rest = buffer;
-  for (;;) {
-    const start = rest.indexOf(JPEG_SOI);
-    if (start === -1) {
-      // 末尾がSOIの前半(0xFF)だけの場合はチャンク境界で割れている可能性があるので残す
-      rest =
-        rest.length > 0 && rest[rest.length - 1] === 0xff
-          ? rest.subarray(rest.length - 1)
-          : Buffer.alloc(0);
-      break;
-    }
-    const end = rest.indexOf(JPEG_EOI, start + 2);
-    if (end === -1) {
-      if (start > 0) rest = rest.subarray(start);
-      break;
-    }
-    frames.push(rest.subarray(start, end + 2));
-    rest = rest.subarray(end + 2);
-  }
-  return { frames, rest };
 }
 
 export function registerWindowStreamWebSocket(wss: WebSocketServer): void {
@@ -163,29 +103,11 @@ export function registerWindowStreamWebSocket(wss: WebSocketServer): void {
       return;
     }
 
-    let ffmpeg: FfmpegProcess;
-    try {
-      ffmpeg = spawnFfmpeg(windowId);
-    } catch {
-      endConnection(ws, "spawn_failed");
-      return;
-    }
+    const source = createFrameSource(windowId);
     console.log(
-      `[ffmpegStream] window ${windowId}: stream starting (pid=${ffmpeg.pid})`,
+      `[ffmpegStream] window ${windowId}: stream starting (${source.describe()})`,
     );
 
-    // ffmpegバイナリ不在(ENOENT)等はspawn()の同期throwではなくここで非同期に通知される
-    ffmpeg.on("error", (err) => {
-      if (activeStreams.get(windowId)?.ffmpeg !== ffmpeg) return;
-      console.error(
-        `[ffmpegStream] window ${windowId}: failed to spawn ffmpeg: ${err.message}`,
-      );
-      closeStream(windowId, "spawn_failed");
-    });
-
-    // Buffer.alloc()はBuffer<ArrayBuffer>を返しBuffer.concat()由来の値と型引数が食い違うため、
-    // extractJpegFramesが返すBuffer(Buffer<ArrayBufferLike>)と揃うよう明示的に型注釈する
-    let buffer: Buffer = Buffer.alloc(0);
     let firstFrameReceived = false;
 
     const firstFrameTimer = setTimeout(() => {
@@ -202,7 +124,7 @@ export function registerWindowStreamWebSocket(wss: WebSocketServer): void {
 
     // 最初の{type:active}到着まではフル解像度fps側に倒しておく(安全側のデフォルト)
     activeStreams.set(windowId, {
-      ffmpeg,
+      source,
       ws,
       unsubscribeWindowChange,
       firstFrameTimer,
@@ -223,50 +145,36 @@ export function registerWindowStreamWebSocket(wss: WebSocketServer): void {
       }
     });
 
-    ffmpeg.stdout.on("data", (chunk: Buffer) => {
-      const { frames, rest } = extractJpegFrames(Buffer.concat([buffer, chunk]));
-      buffer = rest;
+    source.on("frame", (frame: Buffer) => {
+      if (!firstFrameReceived) {
+        firstFrameReceived = true;
+        clearTimeout(firstFrameTimer);
+        console.log(`[ffmpegStream] window ${windowId}: first frame received`);
+      }
 
-      for (const frame of frames) {
-        if (!firstFrameReceived) {
-          firstFrameReceived = true;
-          clearTimeout(firstFrameTimer);
-          console.log(`[ffmpegStream] window ${windowId}: first frame received`);
-        }
-
-        const entry = activeStreams.get(windowId);
-        const now = Date.now();
-        const dueForStaticUpdate =
-          !entry ||
-          entry.active ||
-          now - entry.lastSentAt >= STATIC_STREAM_INTERVAL_MS;
-        if (
-          dueForStaticUpdate &&
-          ws.readyState === ws.OPEN &&
-          ws.bufferedAmount <= BACKPRESSURE_THRESHOLD_BYTES
-        ) {
-          if (entry) entry.lastSentAt = now;
-          ws.send(frame);
-        }
+      const entry = activeStreams.get(windowId);
+      const now = Date.now();
+      const dueForStaticUpdate =
+        !entry ||
+        entry.active ||
+        now - entry.lastSentAt >= STATIC_STREAM_INTERVAL_MS;
+      if (
+        dueForStaticUpdate &&
+        ws.readyState === ws.OPEN &&
+        ws.bufferedAmount <= BACKPRESSURE_THRESHOLD_BYTES
+      ) {
+        if (entry) entry.lastSentAt = now;
+        ws.send(frame);
       }
     });
 
-    let ffmpegStderrTail = "";
-    ffmpeg.stderr.on("data", (chunk: Buffer) => {
-      ffmpegStderrTail = (ffmpegStderrTail + chunk.toString()).slice(-4000);
-    });
-
-    ffmpeg.on("exit", (exitCode, signal) => {
+    source.on("end", ({ reason, detail }: FrameSourceEndEvent) => {
       // 既にsuperseded等で置き換わっていれば何もしない
-      if (activeStreams.get(windowId)?.ffmpeg !== ffmpeg) return;
-
-      const killedByUs = signal === "SIGTERM" || signal === "SIGKILL";
-      if (!killedByUs && exitCode !== 0) {
-        console.error(
-          `[ffmpegStream] window ${windowId}: ffmpeg exited abnormally (code=${exitCode}, signal=${signal})\n${ffmpegStderrTail}`,
-        );
+      if (activeStreams.get(windowId)?.source !== source) return;
+      if (detail) {
+        console.error(`[ffmpegStream] window ${windowId}: ${detail}`);
       }
-      closeStream(windowId, "ffmpeg_exit");
+      closeStream(windowId, reason);
     });
 
     ws.on("close", () => {

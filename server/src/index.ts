@@ -29,7 +29,11 @@ import {
   shutdownStreams,
   MAX_ACTIVE_STREAMS,
 } from "./stream/ffmpegStream";
-import { getSleepGuardEnabled, setSleepGuardEnabled } from "./display/sleepGuard";
+import {
+  getSleepGuardEnabled,
+  setSleepGuardEnabled,
+  shutdownSleepGuard,
+} from "./display/sleepGuard";
 import { enableHeartbeat } from "./wsHeartbeat";
 
 const app = express();
@@ -78,8 +82,8 @@ app.post(
       await setSleepGuardEnabled(nextEnabled);
       res.json({ enabled: getSleepGuardEnabled() });
     } catch (err) {
-      console.error("[index] sleep-guard xset failed:", (err as Error).message);
-      res.status(500).json({ error: "xset_failed" });
+      console.error("[index] sleep-guard failed:", (err as Error).message);
+      res.status(500).json({ error: "sleep_guard_failed" });
     }
   },
 );
@@ -207,8 +211,9 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`server listening on http://127.0.0.1:${PORT}`);
 });
 
-// systemd等からのSIGTERM/SIGINTでffmpeg・ptyの子プロセスを明示的に終了させてから終了する
-// (パイプ切断で実質的には死ぬはずだが、明示終了の方が終了タイミングに依存しない)
+// systemd/launchd等からのSIGTERM/SIGINTで映像・pty・caffeinateの子プロセスを明示的に終了させてから終了する
+// (パイプ切断で実質的には死ぬはずだが、明示終了の方が終了タイミングに依存しない。
+//  特にcaffeinateは親が死んでも残り続けるため明示killが必須)
 let shuttingDown = false;
 function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
@@ -216,6 +221,7 @@ function shutdown(signal: NodeJS.Signals): void {
   console.log(`[index] received ${signal}, shutting down`);
   shutdownTerminal();
   shutdownStreams();
+  shutdownSleepGuard();
   server.close(() => process.exit(0));
   // closeがコールバックされない場合(ソケット滞留等)でも確実に終了する
   setTimeout(() => process.exit(0), 3000).unref();

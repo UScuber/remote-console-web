@@ -39,7 +39,10 @@ export const MAX_ACTIVE_STREAMS = optionalNumber("MAX_ACTIVE_STREAMS", 3);
 // このWebアプリ自身のブラウザウィンドウ等をウィンドウ一覧から除外するためのタイトル部分一致リスト(任意)
 export const WINDOW_TITLE_EXCLUDE = splitList(process.env.WINDOW_TITLE_EXCLUDE);
 
-// ffmpegのx11grab接続先。マルチディスプレイ環境等で:0以外の場合のみ.envで上書きする
+// ffmpegのx11grab接続先(Linuxのみ)。マルチディスプレイ環境等で:0以外の場合のみ.envで上書きする
 export const DISPLAY = process.env.DISPLAY || ":0";
 
 export const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+// ウィンドウ一覧・映像取得・スリープ防止はOSごとにコマンドが異なるため、各モジュールがここで分岐する
+export const IS_MAC = process.platform === "darwin";

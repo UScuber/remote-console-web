@@ -59,7 +59,9 @@ export function registerTerminalWebSocket(wss: WebSocketServer): void {
 
     const existing = activeConnections.get(id);
     if (existing) {
-      console.log(`[ptyManager] terminal ${id}: new connection supersedes existing one`);
+      console.log(
+        `[ptyManager] terminal ${id}: new connection supersedes existing one`,
+      );
       existing.ws.close(TERMINAL_CLOSE_CODES.superseded, "superseded");
     }
 
@@ -122,7 +124,9 @@ export function registerTerminalWebSocket(wss: WebSocketServer): void {
     });
 
     ws.on("close", () => {
-      console.log(`[ptyManager] terminal ${id}: disconnected (pid=${ptyProcess.pid})`);
+      console.log(
+        `[ptyManager] terminal ${id}: disconnected (pid=${ptyProcess.pid})`,
+      );
       if (!exited) {
         try {
           ptyProcess.kill();
@@ -140,7 +144,9 @@ export function registerTerminalWebSocket(wss: WebSocketServer): void {
 // SIGTERM等でのgraceful shutdown用。tmuxサーバー自体・その中のシェルは影響を受けず残る
 export function shutdownTerminal(): void {
   for (const [id, conn] of activeConnections) {
-    console.log(`[ptyManager] terminal ${id}: shutting down (pid=${conn.ptyProcess.pid})`);
+    console.log(
+      `[ptyManager] terminal ${id}: shutting down (pid=${conn.ptyProcess.pid})`,
+    );
     try {
       conn.ptyProcess.kill();
     } catch {

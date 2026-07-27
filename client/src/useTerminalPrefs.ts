@@ -16,7 +16,9 @@ function loadActiveTerminalId(): string {
 
 function loadFontSize(): number {
   const stored = Number(localStorage.getItem(FONT_SIZE_STORAGE_KEY));
-  return Number.isFinite(stored) && stored >= MIN_FONT_SIZE && stored <= MAX_FONT_SIZE
+  return Number.isFinite(stored) &&
+    stored >= MIN_FONT_SIZE &&
+    stored <= MAX_FONT_SIZE
     ? stored
     : DEFAULT_FONT_SIZE;
 }
@@ -30,7 +32,8 @@ export interface TerminalPrefs {
 }
 
 export function useTerminalPrefs(): TerminalPrefs {
-  const [activeTerminalId, setActiveTerminalIdState] = useState(loadActiveTerminalId);
+  const [activeTerminalId, setActiveTerminalIdState] =
+    useState(loadActiveTerminalId);
   const [fontSize, setFontSizeState] = useState(loadFontSize);
 
   function setActiveTerminalId(id: string) {

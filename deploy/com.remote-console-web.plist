@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS用のLaunchAgent(systemdユニットのmacOS版)。導入手順はdeploy/macos-launchd-setup.mdを参照。
+
+  インストール:
+    cp deploy/com.remote-console-web.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.remote-console-web.plist
+  停止・アンインストール:
+    launchctl bootout gui/$(id -u)/com.remote-console-web
+
+  注記: node実パス・リポジトリパスはこの開発機(sol, /Users/sol/Documents/dev/Software/remote-console-web)
+  の実測値。別環境に導入する場合は `which node` とcloneした場所に合わせて書き換えること。
+
+  LaunchDaemon(/Library/LaunchDaemons)ではなくLaunchAgent(~/Library/LaunchAgents)である点が重要:
+  screencaptureによるウィンドウキャプチャはGUIログインセッション内でしか動作しないため、
+  自動ログインを有効にした上でユーザーセッション内(Aqua)で起動する。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.remote-console-web</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/sol/.nodebrew/current/bin/node</string>
+    <string>dist/index.js</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/sol/Documents/dev/Software/remote-console-web/server</string>
+
+  <!-- .env(リポジトリ直下)はサーバー起動時にdotenvが読み込む。dotenvは既存の環境変数を
+       上書きしないため、ここで指定した値が.envより優先される(systemd版のEnvironmentFile
+       2段重ねと同じく、開発用PORT=8443と衝突しないよう本番だけ8444に上書きする)。 -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NODE_ENV</key>
+    <string>production</string>
+    <key>PORT</key>
+    <string>8444</string>
+    <!-- launchdのPATHにはHomebrewが含まれないため、tmux(brew install)が見つかるよう明示する -->
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- systemd版のRestartSec=3相当。異常終了時の再起動間隔 -->
+  <key>ThrottleInterval</key>
+  <integer>3</integer>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/remote-console-web.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/remote-console-web.err.log</string>
+
+  <!-- GUIセッション(Aqua)内でのみロードする。SSHログイン等のセッションでは起動しない -->
+  <key>LimitLoadToSessionType</key>
+  <string>Aqua</string>
+</dict>
+</plist>

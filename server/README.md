@@ -45,15 +45,19 @@ npm run build
 
 ### ウィンドウ一覧(`stream/windowDetector.ts`)
 
-- `wmctrl -l`を2秒間隔でポーリングする。出力は`id desktop host title...`の空白区切りだがtitleに空白を含みうるため、先頭3列だけを分割している。
+- 2秒間隔でウィンドウ一覧をポーリングする。取得コマンドはOS別(`config.ts`の`IS_MAC`で分岐):
+  - Linux: `wmctrl -l`。出力は`id desktop host title...`の空白区切りだがtitleに空白を含みうるため、先頭3列だけを分割している。
+  - macOS: `osascript -l JavaScript`(JXA)経由で`CGWindowListCopyWindowInfo`を呼び、通常ウィンドウ(layer 0)をJSONで受け取る。idはCGWindowID。ウィンドウタイトル(`kCGWindowName`)は画面収録権限が無いと取れず、その場合アプリ名のみになる。一覧は前面順で返りフォーカス移動のたびに入れ替わるため、ID順に並べ替えて変化通知の無駄な発火を防いでいる。
 - `WINDOW_TITLE_EXCLUDE`(カンマ区切り)で、このWebアプリ自身のブラウザウィンドウ等をタイトルの部分一致で除外できる。
 
-### 映像配信(`stream/ffmpegStream.ts`)
+### 映像配信(`stream/ffmpegStream.ts` + `stream/frameSource.ts`)
 
-- ffmpegのstdoutはフレーム境界の通知が無い連続バイト列のため、JPEGのSOI(`0xFFD8`)〜EOI(`0xFFD9`)マーカーで自前に1フレームずつ切り出している(純関数`extractJpegFrames`に分離、チャンク境界でマーカーが割れるケースは未確定分を`rest`として次のチャンクへ持ち越す)。
+- フレームの取得方法はOS別に`frameSource.ts`へ分離しており(`createFrameSource`)、`ffmpegStream.ts`は接続管理・帯域制御・異常検知だけを担う:
+  - Linux: ffmpeg(x11grab)を常駐させMJPEGを受け取る。stdoutはフレーム境界の通知が無い連続バイト列のため、JPEGのSOI(`0xFFD8`)〜EOI(`0xFFD9`)マーカーで自前に1フレームずつ切り出している(純関数`extractJpegFrames`、チャンク境界でマーカーが割れるケースは未確定分を`rest`として次のチャンクへ持ち越す)。15fps。
+  - macOS: ffmpegのavfoundationはウィンドウ単位のキャプチャに非対応のため、OS標準の`screencapture -l <CGWindowID>`+`sips`(960px幅へ縮小)を約500ms間隔で実行してフレームを作る(約2fps)。単発の失敗は無視し、連続3回失敗で`ffmpeg_exit`として配信を終了する。画面収録権限が無い場合は`could not create image from window`で失敗する。
 - 非アクティブ(帯域節約モード)なストリームは`STATIC_STREAM_INTERVAL_MS`ごとにしか送信しない。クライアント側で受信後に間引いても帯域は減らないため、送信元であるここで間引く。
 - `ws.bufferedAmount`が閾値を超えているフレームは古い順ではなく丸ごと破棄し、常に最新映像を優先する。
-- 最小化・画面外配置時のx11grab挙動が機種依存で不定なため(検証結果は`CLAUDE.md`のStep 0参照)、最初のフレームが一定時間内に届かない場合は一律タイムアウトで異常とみなす。
+- 最小化・画面外配置時のキャプチャ挙動が機種依存で不定なため(x11grabの検証結果は`CLAUDE.md`のStep 0参照)、最初のフレームが一定時間内に届かない場合は一律タイムアウトで異常とみなす。
 - クライアントへの終了理由(`ended`メッセージの`reason`とWebSocket close code)は`shared/protocol.ts`の`WINDOW_STREAM_CLOSE_CODES`/`WindowStreamEndReason`にまとめている。client側の`WindowStream.tsx`もこの型を`import`しているため、reasonを追加した際に片方だけ直し忘れるとコンパイルエラーで検知できる(以前は文字列一致をコメントで揃えるだけだった)。
 
 ### プロトコル定義(`../shared/protocol.ts`)
@@ -64,6 +68,13 @@ npm run build
 
 - `/ws/terminal/:id`・`/ws/windows`・`/ws/window/:id`共通で30秒間隔のpingを送り、pongが2回連続で返らない接続は`terminate()`で切断する。`terminate()`でも`close`イベントは発火するため、各ハンドラ側のリソース解放(ptyのkill・ffmpegのkill等)はそのまま流用される。
 
+### スリープ防止(`display/sleepGuard.ts`)
+
+- OS別に方式が異なる:
+  - Linux: `xdotool`でマウスを1px動かしてすぐ戻す操作を15秒間隔で送り続け、GNOME側のアイドル判定自体を起こさせない。
+  - macOS: `caffeinate -dims`を常駐させ、ディスプレイ・システムのスリープを直接抑止する。caffeinateが予期せず終了した場合は状態をOFFへ戻す。
+- ON/OFFは`GET/POST /api/display/sleep-guard`で操作する(クライアントのステータスバーのトグル)。
+
 ### 終了処理(`index.ts`)
 
-- `SIGTERM`/`SIGINT`受信時に、アクティブなpty(ターミナル)・ffmpeg(映像)の子プロセスを明示的にkillしてからプロセスを終了する(`ptyManager.shutdownTerminal` / `ffmpegStream.shutdownStreams`)。パイプ切断で子プロセスも実質的には終了するはずだが、systemd運用(Step 8)で終了タイミングに依存しないようにするための処理。
+- `SIGTERM`/`SIGINT`受信時に、アクティブなpty(ターミナル)・映像(ffmpeg/screencaptureループ)・caffeinateの子プロセスを明示的にkillしてからプロセスを終了する(`ptyManager.shutdownTerminal` / `ffmpegStream.shutdownStreams` / `sleepGuard.shutdownSleepGuard`)。パイプ切断で子プロセスも実質的には終了するはずだが、systemd/launchd運用で終了タイミングに依存しないようにするための処理。特にcaffeinateは親プロセスが死んでも残り続けるため明示killが必須。

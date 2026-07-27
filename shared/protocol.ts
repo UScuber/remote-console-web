@@ -14,8 +14,9 @@ export interface WindowsListMessage {
 
 // client/server共通の単一の定義元
 export const TERMINAL_COUNT = 6;
-export const TERMINAL_IDS: string[] = Array.from({ length: TERMINAL_COUNT }, (_, i) =>
-  String(i + 1),
+export const TERMINAL_IDS: string[] = Array.from(
+  { length: TERMINAL_COUNT },
+  (_, i) => String(i + 1),
 );
 export function isValidTerminalId(id: string): boolean {
   return TERMINAL_IDS.includes(id);

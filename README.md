@@ -1,12 +1,21 @@
 # remote-console-web
 
-自宅Ubuntu機上のシミュレーション(AWSIM等)を、ブラウザから遠隔監視・操作するWebアプリ。ターミナル操作とシミュレーションウィンドウの映像確認を1ページで行う。
+自宅マシン上のシミュレーション(AWSIM等)やアプリを、ブラウザから遠隔監視・操作するWebアプリ。ターミナル操作とウィンドウの映像確認を1ページで行う。Linux(Ubuntu/X11)とmacOSに対応。
 
 ## 動作前提条件
 
+### Linux (Ubuntu)
+
 - ディスプレイサーバーがXorg(X11)であること(`echo $XDG_SESSION_TYPE` が `x11`)。Waylandは非対応。
 - 対象ユーザーで自動ログインを有効化し、画面の自動ロック・ブランク・自動サスペンドを無効化しておくこと。
-- 依存パッケージ: `sudo apt install -y ffmpeg wmctrl tmux`
+- 依存パッケージ: `sudo apt install -y ffmpeg wmctrl tmux xdotool`
+
+### macOS
+
+- 依存パッケージ: `brew install tmux` のみ(ffmpeg・wmctrl・xdotoolは不要。ウィンドウ一覧・映像キャプチャ・スリープ防止はすべてmacOS標準の`osascript`/`screencapture`/`sips`/`caffeinate`で行う)。
+- **画面収録(Screen Recording)権限**: ウィンドウタイトルの取得と映像キャプチャには、nodeを実行するプロセス(開発時はTerminal等、launchd運用時はnode本体)への画面収録権限が必要。付与手順は`deploy/macos-launchd-setup.md`を参照。
+- 映像は`screencapture`の定期実行方式のため約2fps(Linuxのffmpeg 15fpsより低いが、状態監視用途には十分)。
+- 常時運用する場合は自動ログインを有効化し、システム設定でスリープを無効化しておくこと(アプリ内の「スリープ防止」トグルでも`caffeinate`による抑止が可能)。
 
 ## リポジトリ構成
 
@@ -19,6 +28,8 @@ npm workspacesによるモノレポ構成(`server` / `client` / `shared`)。`sha
 ```bash
 npm install
 ```
+
+npmの展開時にnode-ptyのprebuiltヘルパー(`spawn-helper`)の実行権限が失われ、ターミナル起動が`posix_spawnp failed`で失敗することがある(macOSで実際に発生)。ルート`package.json`の`postinstall`で自動修復されるため通常は意識不要だが、既存の`node_modules`で同エラーが出る場合は`npm install`を再実行すること。
 
 `.env.example` を `.env` にコピーし、値を設定する。
 
@@ -44,9 +55,11 @@ cd client && npm run dev
 
 `shared/protocol.ts`を編集した場合、`client`はソースを直接参照するため即座に反映されるが、`server`はビルド済みの`shared/dist/`を参照するため、`server`の`dev`/`build`を再実行(または`cd shared && npm run build`)して初めて変更が反映される。
 
-## デプロイ(systemd + Tailscale Serve)
+## デプロイ(systemd/launchd + Tailscale Serve)
 
-本番運用時は、常時起動機(自動ログイン済みのUbuntu Desktop)上で以下の3つを組み合わせる。
+**macOSの場合はlaunchdを使う。手順は`deploy/macos-launchd-setup.md`を参照(以下のsystemd手順のmacOS版)。**
+
+Linuxでの本番運用時は、常時起動機(自動ログイン済みのUbuntu Desktop)上で以下の3つを組み合わせる。
 
 1. `server`・`client`をそれぞれビルドしておく(`npm run build`、上記参照)。サーバーは`client/dist`を静的配信する。
 2. systemdサービスとして`server`を自動起動・自動再起動する(`deploy/remote-console-web.service`)。

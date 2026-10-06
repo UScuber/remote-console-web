@@ -13,23 +13,16 @@ import "./App.css";
 type AuthState = "loading" | "anonymous" | "authenticated";
 type Tab = "terminal" | "video";
 
-const DEFAULT_MAX_ACTIVE_STREAMS = 3;
-
 interface Panel {
   id: string;
   title: string;
   seq: number;
-  // falseにするだけで終了メッセージを表示したまま残せるので、削除して別集合で管理しない
   ended: boolean;
 }
 
 function App() {
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [csrfToken, setCsrfToken] = useState("");
-  const [maxActiveStreams, setMaxActiveStreams] = useState(
-    DEFAULT_MAX_ACTIVE_STREAMS,
-  );
-
   const [tab, setTab] = useState<Tab>("terminal");
   const {
     activeTerminalId,
@@ -43,12 +36,9 @@ function App() {
     status: windowListStatus,
     retryNow: retryWindowList,
   } = useWindowList();
-  const [panels, setPanels] = useState<Panel[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [panel, setPanel] = useState<Panel | null>(null);
   const [pageHidden, setPageHidden] = useState(false);
   const nextSeqRef = useRef(0);
-
-  const liveIds = new Set(panels.filter((p) => !p.ended).map((p) => p.id));
 
   useEffect(() => {
     async function loadSession() {
@@ -57,11 +47,8 @@ function App() {
         const data: {
           authenticated: boolean;
           csrfToken: string;
-          maxActiveStreams?: number;
         } = await res.json();
         setCsrfToken(data.csrfToken);
-        if (typeof data.maxActiveStreams === "number")
-          setMaxActiveStreams(data.maxActiveStreams);
         setAuthState(data.authenticated ? "authenticated" : "anonymous");
       } catch {
         setAuthState("anonymous");
@@ -87,37 +74,23 @@ function App() {
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
-  // activeIdはpanelsから導出する(setPanelsの外でpanelsを読むとstale closureになるため、
-  // handleClosePanel/handlePanelEnded側では計算せずここで一元的に補正する)
-  useEffect(() => {
-    setActiveId((prev) => {
-      if (prev !== null && panels.some((p) => p.id === prev && !p.ended)) {
-        return prev;
-      }
-      return panels.find((p) => !p.ended)?.id ?? null;
-    });
-  }, [panels]);
-
-  function handleClosePanel(id: string) {
-    setPanels((prev) => prev.filter((p) => p.id !== id));
-  }
-
-  function handleToggleWindow(id: string, title: string) {
-    if (liveIds.has(id)) {
-      handleClosePanel(id);
+  function handleSelectWindow(id: string) {
+    if (!id) {
+      setPanel(null);
       return;
     }
-    if (liveIds.size >= maxActiveStreams) return;
-    const seq = nextSeqRef.current++;
-    setPanels((prev) => [
-      ...prev.filter((p) => p.id !== id),
-      { id, title, seq, ended: false },
-    ]);
-    setActiveId((prev) => prev ?? id);
+    const windowInfo = windows.find((w) => w.id === id);
+    if (!windowInfo) return;
+    setPanel({
+      id,
+      title: windowInfo.title,
+      seq: nextSeqRef.current++,
+      ended: false,
+    });
   }
 
-  function handlePanelEnded(id: string) {
-    setPanels((prev) => prev.map((p) => (p.id === id ? { ...p, ended: true } : p)));
+  function handlePanelEnded(seq: number) {
+    setPanel((prev) => (prev?.seq === seq ? { ...prev, ended: true } : prev));
   }
 
   if (authState === "loading") {
@@ -207,39 +180,34 @@ function App() {
         </div>
       </div>
       <div
-        className="tab-content"
+        className="tab-content video-content"
         style={{ display: tab === "video" ? "flex" : "none" }}
       >
         <WindowPicker
           windows={windows}
           status={windowListStatus}
           onRetry={retryWindowList}
-          openIds={liveIds}
-          atCap={liveIds.size >= maxActiveStreams}
-          maxActiveStreams={maxActiveStreams}
-          onToggle={handleToggleWindow}
+          selectedId={panel?.id ?? ""}
+          onSelect={handleSelectWindow}
           csrfToken={csrfToken}
         />
-        <div className="window-stream-list">
-          {panels.length === 0 && (
-            <div className="window-stream-list-empty">
-              上の一覧からウィンドウを選んでください
+        <div className="video-stage">
+          {!panel ? (
+            <div className="video-stage-empty">
+              上のメニューからウィンドウを選んでください
             </div>
-          )}
-          {panels.map((p) => (
+          ) : (
             <WindowStream
-              key={`${p.id}:${p.seq}`}
-              id={p.id}
-              title={windows.find((w) => w.id === p.id)?.title ?? p.title}
-              // ターミナルタブ表示中は全パネルを非アクティブ扱いにしサーバー側送信も間引かせる
-              active={activeId === p.id && tab === "video"}
-              windowStillListed={windows.some((w) => w.id === p.id)}
+              key={`${panel.id}:${panel.seq}`}
+              id={panel.id}
+              title={windows.find((w) => w.id === panel.id)?.title ?? panel.title}
+              active={!panel.ended && tab === "video"}
+              windowStillListed={windows.some((w) => w.id === panel.id)}
               pageHidden={pageHidden}
-              onActivate={() => setActiveId(p.id)}
-              onClose={() => handleClosePanel(p.id)}
-              onEnded={() => handlePanelEnded(p.id)}
+              onClose={() => setPanel(null)}
+              onEnded={() => handlePanelEnded(panel.seq)}
             />
-          ))}
+          )}
         </div>
       </div>
     </div>

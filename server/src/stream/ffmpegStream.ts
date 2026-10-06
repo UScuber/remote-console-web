@@ -26,7 +26,7 @@ const FIRST_FRAME_TIMEOUT_MS = 5000;
 // 非アクティブなストリームはここで送信自体を間引く(クライアント側の受信後破棄では帯域が減らない)
 const STATIC_STREAM_INTERVAL_MS = 3000;
 
-// クライアント側の二重防御(WindowPicker)でも同じ値を使うため export する
+// セッション情報として上限を返すため export する
 export const MAX_ACTIVE_STREAMS = MAX_ACTIVE_STREAMS_CONFIG;
 
 const JPEG_SOI = Buffer.from([0xff, 0xd8]);
@@ -90,7 +90,7 @@ function spawnFfmpeg(windowId: string): FfmpegProcess {
       "-i",
       DISPLAY,
       "-vf",
-      `scale=${SCALE_WIDTH}:-1`,
+      `scale='min(iw,${SCALE_WIDTH})':-1`,
       "-r",
       String(FRAME_RATE),
       "-f",

@@ -1,64 +1,38 @@
 # remote-console-web
 
-自宅Ubuntu機上のシミュレーション(AWSIM等)を、ブラウザから遠隔監視・操作するWebアプリ。ターミナル操作とシミュレーションウィンドウの映像確認を1ページで行う。
-
-## 動作前提条件
-
-- ディスプレイサーバーがXorg(X11)であること(`echo $XDG_SESSION_TYPE` が `x11`)。Waylandは非対応。
-- 対象ユーザーで自動ログインを有効化し、画面の自動ロック・ブランク・自動サスペンドを無効化しておくこと。
-- 依存パッケージ: `sudo apt install -y ffmpeg wmctrl tmux`
-
-## リポジトリ構成
-
-npm workspacesによるモノレポ構成(`server` / `client` / `shared`)。`shared/`はWebSocketプロトコルの型・定数(`shared/protocol.ts`)をclient/server間で共有するための小さなパッケージで、直接編集することはあっても単体で動かすものではない。
+Ubuntu機のシミュレーションをブラウザから監視・操作するアプリです。
 
 ## セットアップ
 
-依存関係のインストールは**リポジトリ直下で1回だけ**行う(workspacesが`server`/`client`/`shared`をまとめて解決する)。
+Xorg（X11）のUbuntu Desktopで、自動ログインを有効にし、画面ロック・画面消灯・自動サスペンドを無効にします。
 
 ```bash
+sudo apt install -y ffmpeg wmctrl tmux
 npm install
-```
-
-`.env.example` を `.env` にコピーし、値を設定する。
-
-```bash
 cp .env.example .env
 ```
 
-`LOGIN_PASSWORD_HASH` はbcryptハッシュ値(`$2b$10$...`)のため、シェルで直接値を設定する場合はダブルクォートではなく**シングルクォート**を使うこと(`$`がシェル変数展開されるのを防ぐため)。
-
-ビルドは各パッケージ内で行う。`server`・`client`とも自身の`build`/`dev`スクリプトが`shared`のビルドを自動的に先行実行するため、`shared`側で個別にビルドコマンドを打つ必要はない。
-
-```bash
-cd server && npm run build
-cd ../client && npm run build
-```
+`.env`を編集し、`LOGIN_PASSWORD_HASH`にはbcryptハッシュを設定してください。
 
 ## 開発
 
+別々のターミナルで実行します。
+
 ```bash
-cd server && npm run dev
-cd client && npm run dev
+npm run dev -w server
+npm run dev -w client
 ```
 
-`shared/protocol.ts`を編集した場合、`client`はソースを直接参照するため即座に反映されるが、`server`はビルド済みの`shared/dist/`を参照するため、`server`の`dev`/`build`を再実行(または`cd shared && npm run build`)して初めて変更が反映される。
+## ビルド
 
-## デプロイ(systemd + Tailscale Serve)
+```bash
+npm run build -w server
+npm run build -w client
+```
 
-本番運用時は、常時起動機(自動ログイン済みのUbuntu Desktop)上で以下の3つを組み合わせる。
+## デプロイ
 
-1. `server`・`client`をそれぞれビルドしておく(`npm run build`、上記参照)。サーバーは`client/dist`を静的配信する。
-2. systemdサービスとして`server`を自動起動・自動再起動する(`deploy/remote-console-web.service`)。
-3. Tailscale Serveでこのアプリ(ローカル`127.0.0.1:8444`、systemdユニット側で開発用の8443と衝突しないよう上書き)を`/remote-console`パス配下でTailnet内にHTTPS公開する(同一マシンから将来他のアプリも配信する場合にパスが衝突しないようにするため。`deploy/tailscale-serve-setup.md`)。
-
-### systemdサービスの導入
-
-`deploy/remote-console-web.service`はUser・DISPLAY・Xauthority・リポジトリパス・nodeの実パスをこの開発機の実測値で埋めてある。**別の機体に導入する場合は下記を実機で確認し、ユニットファイルを書き換えてから導入すること。**
-
-- `echo $DISPLAY`(自動ログインしたグラフィカルセッション内で実行。`:0`以外の場合がある)
-- `which node`(nvm等でNodeを管理している場合、`/usr/bin/node`ではない実パスになっていることが多い)
-- リポジトリの実際のclone先パス
+`deploy/remote-console-web.service`のユーザー名、リポジトリパス、`DISPLAY`、`XAUTHORITY`、Nodeのパスを実機に合わせて変更します。
 
 ```bash
 sudo cp deploy/remote-console-web.service /etc/systemd/system/
@@ -66,17 +40,4 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now remote-console-web.service
 ```
 
-状態確認・ログ:
-
-```bash
-systemctl status remote-console-web.service
-journalctl -u remote-console-web.service -f
-```
-
-このサービスは`EnvironmentFile`でリポジトリ直下の`.env`を読み込む。`.env`を書き換えた場合は`sudo systemctl restart remote-console-web.service`が必要。
-
-サービスは`graphical.target`(自動ログインのグラフィカルセッション)到達後に起動を試みるが、X11セッションの起動タイミングによっては初回起動時にDISPLAYへ接続できず失敗することがある。`Restart=always`・`RestartSec=3`により自動的に再試行されるため、通常は数秒後に正常起動する。
-
-### Tailscale Serve
-
-手順・ACLでのアクセス制限方法は`deploy/tailscale-serve-setup.md`を参照。
+Tailscale Serveの設定は[デプロイ手順](deploy/tailscale-serve-setup.md)を参照してください。

@@ -73,7 +73,7 @@ xterm(canvas描画)+tmux(mouse on)構成では、モバイルでの文字選択�
 
 ### `useWindowList.ts` / `components/WindowPicker.tsx`
 
-`/ws/windows`の購読は`useWindowList.ts`(App側で利用)に一本化しており、`WindowPicker.tsx`は`windows`・`status`等をpropsで受け取るだけの表示専用コンポーネント。以前はWindowPickerが購読しApp側へ`onWindowsChange`で一覧を吸い上げる子→親のサイドチャネルだったが、一覧の所有者をApp(`useWindowList`)側に一本化した。
+`/ws/windows`の購読は`useWindowList.ts`(App側で利用)に一本化しており、`WindowPicker.tsx`は`windows`・`status`等をpropsで受け取るだけの表示専用コンポーネント。映像タブではプルダウンで1つのウィンドウを選び、切り替え時は前の配信を閉じる。映像は選択欄の下の領域内に収め、受信フレームのサイズを超えて拡大しない。
 
 ### `components/WindowStream.tsx`
 

@@ -39,7 +39,6 @@ interface WindowStreamProps {
   active: boolean;
   windowStillListed: boolean;
   pageHidden: boolean;
-  onActivate: () => void;
   onClose: () => void;
   onEnded: () => void;
 }
@@ -50,7 +49,6 @@ function WindowStream({
   active,
   windowStillListed,
   pageHidden,
-  onActivate,
   onClose,
   onEnded,
 }: WindowStreamProps) {
@@ -58,6 +56,7 @@ function WindowStream({
   const [endReason, setEndReason] = useState<ClientEndReason | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const wsHandleRef = useRef<SharedWsHandle | null>(null);
   const statusRef = useRef<Status>("connecting");
   const activeRef = useRef(active);
@@ -99,9 +98,25 @@ function WindowStream({
           bitmap.close();
           return;
         }
-        if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+        if (
+          canvas.width !== bitmap.width ||
+          canvas.height !== bitmap.height ||
+          !canvas.style.width
+        ) {
           canvas.width = bitmap.width;
           canvas.height = bitmap.height;
+          // 初回表示時に収まる大きさを決め、ブラウザのズーム中は再計算しない。
+          // 幅や高さをviewportに追従させると、拡大した位置から映像が動く。
+          const body = bodyRef.current;
+          if (body?.clientWidth && body.clientHeight) {
+            const ratio = Math.min(
+              1,
+              body.clientWidth / bitmap.width,
+              body.clientHeight / bitmap.height,
+            );
+            canvas.style.width = `${bitmap.width * ratio}px`;
+            canvas.style.height = `${bitmap.height * ratio}px`;
+          }
         }
         canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
         bitmap.close();
@@ -183,10 +198,7 @@ function WindowStream({
   };
 
   return (
-    <div
-      className={`window-stream${active ? " window-stream-active" : ""}`}
-      onClick={() => status !== "ended" && onActivate()}
-    >
+    <div className={`window-stream${active ? " window-stream-active" : ""}`}>
       <div className="window-stream-header">
         <span className="window-stream-title">{title || "(無題)"}</span>
         <span className="window-stream-status">{statusLabel[status]}</span>
@@ -201,7 +213,7 @@ function WindowStream({
           閉じる
         </button>
       </div>
-      <div className="window-stream-body">
+      <div ref={bodyRef} className="window-stream-body">
         <canvas ref={canvasRef} className="window-stream-canvas" />
         {status === "ended" && (
           <div className="window-stream-overlay">{statusLabel.ended}</div>

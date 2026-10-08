@@ -5,6 +5,7 @@ const FALLBACK_LINE_HEIGHT_PX = 16;
 
 interface Gesture {
   touchId: number;
+  startX: number;
   startY: number;
   anchorY: number;
   lineHeightPx: number;
@@ -18,10 +19,13 @@ interface Gesture {
 export function enableTerminalTouchScroll(
   term: Terminal,
   container: HTMLElement,
+  onTap?: (clientX: number, clientY: number) => boolean,
 ): () => void {
   const root = term.element;
   const screen = root?.querySelector<HTMLElement>(".xterm-screen") ?? null;
   if (!root || !screen) return () => {};
+  const terminalElement = root;
+  const screenElement = screen;
 
   let gesture: Gesture | null = null;
 
@@ -35,7 +39,7 @@ export function enableTerminalTouchScroll(
   function visibleLineHeightPx(): number {
     return Math.max(
       FALLBACK_LINE_HEIGHT_PX,
-      screen!.getBoundingClientRect().height / (term.rows || 1),
+      screenElement.getBoundingClientRect().height / (term.rows || 1),
     );
   }
 
@@ -49,7 +53,7 @@ export function enableTerminalTouchScroll(
       bubbles: true,
       cancelable: true,
     });
-    root!.dispatchEvent(event);
+    terminalElement.dispatchEvent(event);
   }
 
   function onTouchStart(e: TouchEvent) {
@@ -60,6 +64,7 @@ export function enableTerminalTouchScroll(
     const touch = e.touches[0];
     gesture = {
       touchId: touch.identifier,
+      startX: touch.clientX,
       startY: touch.clientY,
       anchorY: touch.clientY,
       lineHeightPx: FALLBACK_LINE_HEIGHT_PX,
@@ -76,7 +81,7 @@ export function enableTerminalTouchScroll(
 
     if (!gesture.isScrolling) {
       if (Math.abs(touch.clientY - gesture.startY) < DRAG_START_THRESHOLD_PX) return;
-      const rect = screen!.getBoundingClientRect();
+      const rect = screenElement.getBoundingClientRect();
       gesture.isScrolling = true;
       gesture.anchorY = touch.clientY;
       gesture.lineHeightPx = visibleLineHeightPx();
@@ -97,18 +102,34 @@ export function enableTerminalTouchScroll(
   }
 
   function onTouchEnd(e: TouchEvent) {
-    if (gesture && !findTouch(e.touches, gesture.touchId)) gesture = null;
+    if (!gesture || findTouch(e.touches, gesture.touchId)) return;
+    const touch = findTouch(e.changedTouches, gesture.touchId);
+    if (
+      touch &&
+      !gesture.isScrolling &&
+      Math.abs(touch.clientX - gesture.startX) < DRAG_START_THRESHOLD_PX &&
+      Math.abs(touch.clientY - gesture.startY) < DRAG_START_THRESHOLD_PX &&
+      onTap?.(touch.clientX, touch.clientY)
+    ) {
+      // Suppress the synthetic mouse click; it would also reach tmux's mouse handler.
+      e.preventDefault();
+    }
+    gesture = null;
+  }
+
+  function onTouchCancel() {
+    gesture = null;
   }
 
   container.addEventListener("touchstart", onTouchStart, { passive: true });
   container.addEventListener("touchmove", onTouchMove, { passive: false });
-  container.addEventListener("touchend", onTouchEnd, { passive: true });
-  container.addEventListener("touchcancel", onTouchEnd, { passive: true });
+  container.addEventListener("touchend", onTouchEnd, { passive: false });
+  container.addEventListener("touchcancel", onTouchCancel, { passive: true });
 
   return () => {
     container.removeEventListener("touchstart", onTouchStart);
     container.removeEventListener("touchmove", onTouchMove);
     container.removeEventListener("touchend", onTouchEnd);
-    container.removeEventListener("touchcancel", onTouchEnd);
+    container.removeEventListener("touchcancel", onTouchCancel);
   };
 }

@@ -27,7 +27,8 @@ interface TerminalPanelProps {
 }
 
 function TerminalPanel({ id, fontSize }: TerminalPanelProps) {
-  const { containerRef, termRef, fit } = useXtermTerminal(fontSize);
+  const { containerRef, termRef, fit, resetInputContext } =
+    useXtermTerminal(fontSize);
   const { status, sendInput, retryNow } = useTerminalWs(id, termRef, fit);
 
   const ctrlArmedRef = useRef(false);
@@ -56,7 +57,13 @@ function TerminalPanel({ id, fontSize }: TerminalPanelProps) {
 
   function submitCommand(text: string) {
     returnToLatest();
+    resetInputContext();
     sendInput(toShellCommand(text));
+  }
+
+  function pressSpecialKey(seq: string) {
+    resetInputContext();
+    sendInput(seq);
   }
 
   // term.focus()を呼ぶと再フォーカスでiOSキーボードがちらつくため触らない
@@ -122,7 +129,7 @@ function TerminalPanel({ id, fontSize }: TerminalPanelProps) {
       <TerminalKeyBar
         ctrlArmed={ctrlArmed}
         onPressCtrl={pressCtrl}
-        onPressKey={sendInput}
+        onPressKey={pressSpecialKey}
       />
       {showReview && (
         <TerminalReviewSheet id={id} onClose={() => setShowReview(false)} />

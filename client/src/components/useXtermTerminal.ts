@@ -4,12 +4,15 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { enableTerminalTouchScroll } from "./terminalTouchScroll";
+import { enableIOSTerminalInput } from "./iosTerminalInput";
 
 export interface XtermTerminal {
   containerRef: RefObject<HTMLDivElement | null>;
   termRef: RefObject<Terminal | null>;
   /** IME変換中かどうかに関わらず即座にfitさせる(WS接続直後など) */
   fit: () => void;
+  /** 特殊キーや別の入力欄から送った後、iOS予測変換の文脈を切る */
+  resetInputContext: () => void;
 }
 
 // xterm.jsインスタンスの生成・fit・タッチスクロール・IME変換中のリサイズ保留を担当する。
@@ -18,6 +21,7 @@ export function useXtermTerminal(fontSize: number): XtermTerminal {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const resetInputContextRef = useRef<() => void>(() => {});
   // 初期値だけrefで固定し、以後の変更は下の別effectで反映する
   const initialFontSizeRef = useRef(fontSize);
 
@@ -44,8 +48,6 @@ export function useXtermTerminal(fontSize: number): XtermTerminal {
     term.textarea?.setAttribute("autocorrect", "on");
     term.textarea?.setAttribute("spellcheck", "true");
 
-    const disposeTouchScroll = enableTerminalTouchScroll(term, container);
-
     // fit()はterm.resize()経由で再描画するため、iOS Safariの変換中に呼ぶと確定前の文字が
     // 消えることがある、ソフトキーボード出現自体もリサイズを起こすため変換完了まで保留する
     let isComposing = false;
@@ -57,18 +59,25 @@ export function useXtermTerminal(fontSize: number): XtermTerminal {
       }
       fitAddon.fit();
     }
-
-    const textarea = term.textarea;
-    const handleCompositionStart = () => {
-      isComposing = true;
-    };
-    const handleCompositionEnd = () => {
-      isComposing = false;
-      if (fitPending) {
+    function setCompositionState(composing: boolean) {
+      isComposing = composing;
+      if (!composing && fitPending) {
         fitPending = false;
         fitAddon.fit();
       }
-    };
+    }
+
+    const iosInput = enableIOSTerminalInput(term, setCompositionState);
+    resetInputContextRef.current = iosInput.reset;
+    const disposeTouchScroll = enableTerminalTouchScroll(
+      term,
+      container,
+      iosInput.moveCursorToTap,
+    );
+
+    const textarea = term.textarea;
+    const handleCompositionStart = () => setCompositionState(true);
+    const handleCompositionEnd = () => setCompositionState(false);
     textarea?.addEventListener("compositionstart", handleCompositionStart);
     textarea?.addEventListener("compositionend", handleCompositionEnd);
 
@@ -78,6 +87,8 @@ export function useXtermTerminal(fontSize: number): XtermTerminal {
     window.addEventListener("resize", handleWindowResize);
 
     return () => {
+      iosInput.dispose();
+      resetInputContextRef.current = () => {};
       disposeTouchScroll();
       resizeObserver.disconnect();
       window.removeEventListener("resize", handleWindowResize);
@@ -101,5 +112,6 @@ export function useXtermTerminal(fontSize: number): XtermTerminal {
     containerRef,
     termRef,
     fit: () => fitAddonRef.current?.fit(),
+    resetInputContext: () => resetInputContextRef.current(),
   };
 }
